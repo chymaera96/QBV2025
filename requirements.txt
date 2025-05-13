@@ -1,0 +1,12 @@
+torch
+torchvision
+torchaudio
+scikit-learn==1.6.1
+matplotlib
+lightning
+pandas
+librosa>=0.10.0
+notebook
+wandb
+numpy<2 
+-e ./CLAP

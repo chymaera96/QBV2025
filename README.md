@@ -23,7 +23,7 @@ pip install -r requirements.txt
 ```
 
 ## Train
-Simply run or modify bash train_basline.sh.
+Simply run or modify bash `train_basline.sh`.
 The dataset will be downloaded automatically on the first run.
 The following command gives the best results:
 ```
@@ -40,19 +40,19 @@ python src/qvim_mn_baseline/ex_qvim.py \
 ## Performance and Insights
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between;">
     <a href="https://github.com/user-attachments/assets/3e10bc45-4c20-425a-a3bc-cf38ff812780" target="_blank">
-        <img width="450" alt="Screenshot 2025-05-13 at 12 30 19" src="https://github.com/user-attachments/assets/3e10bc45-4c20-425a-a3bc-cf38ff812780" />
+        <img width="350" alt="Screenshot 2025-05-13 at 12 30 19" src="https://github.com/user-attachments/assets/3e10bc45-4c20-425a-a3bc-cf38ff812780" />
     </a>
     <a href="https://github.com/user-attachments/assets/f77ab283-4338-4790-8b68-0bb31ba61934" target="_blank">
-        <img width="450" alt="Screenshot 2025-05-13 at 12 30 46" src="https://github.com/user-attachments/assets/f77ab283-4338-4790-8b68-0bb31ba61934" />
+        <img width="350" alt="Screenshot 2025-05-13 at 12 30 46" src="https://github.com/user-attachments/assets/f77ab283-4338-4790-8b68-0bb31ba61934" />
     </a>
 </div>
 
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between;">
     <a href="https://github.com/user-attachments/assets/c4a49a61-98eb-4615-988c-0c1964b3d538" target="_blank">
-        <img width="450" alt="Screenshot 2025-05-13 at 12 31 24" src="https://github.com/user-attachments/assets/c4a49a61-98eb-4615-988c-0c1964b3d538" />
+        <img width="350" alt="Screenshot 2025-05-13 at 12 31 24" src="https://github.com/user-attachments/assets/c4a49a61-98eb-4615-988c-0c1964b3d538" />
     </a>
     <a href="https://github.com/user-attachments/assets/ddeefae0-3250-491f-bfaf-a3751eaba63a" target="_blank">
-        <img width="450" alt="Screenshot 2025-05-13 at 12 31 39" src="https://github.com/user-attachments/assets/ddeefae0-3250-491f-bfaf-a3751eaba63a" />
+        <img width="350" alt="Screenshot 2025-05-13 at 12 31 39" src="https://github.com/user-attachments/assets/ddeefae0-3250-491f-bfaf-a3751eaba63a" />
     </a>
 </div>
 

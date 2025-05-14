@@ -1,6 +1,7 @@
 import glob
 import os
 
+import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
 import laion_clap
 import torch
 from evaluate import evaluate_qvim_system
@@ -9,20 +10,43 @@ from tqdm import tqdm
 
 
 class CLAP(nn.Module):
-    def __init__(self, model_id=3):
+    def __init__(self, model_id=1):
         super(CLAP, self).__init__()
 
-        enable_fusion = False
-        if model_id == 2 or model_id == 3:
-            enable_fusion = True
-        self.model = laion_clap.CLAP_Module(enable_fusion=enable_fusion).to("cuda")
+        self.is_afclap = False
 
-        self.model.load_ckpt(model_id=model_id)
+        if model_id == "AF":
+            self.is_afclap = True
+            afclap_ckpt_path = "./models/afclap.pt"
+
+            # Initialize AFCLAP model
+            self.model = af_laion_clap.CLAP_Module(
+                enable_fusion=True, amodel="HTSAT-afclap", tmodel="t5"
+            ).cuda()
+
+            # Load AFCLAP checkpoint
+            self.model.load_afclap_ckpt(ckpt=afclap_ckpt_path, verbose=True)
+        else:
+            # Original CLAP initialization
+            enable_fusion = False
+            if model_id == 2 or model_id == 3:
+                enable_fusion = True
+            self.model = laion_clap.CLAP_Module(enable_fusion=enable_fusion).to("cuda")
+            self.model.load_ckpt(model_id=model_id)
 
         self.model.eval()
 
     def forward(self, x):
-        features = self.model.get_audio_embedding_from_filelist(x=x, use_tensor=True)
+        if self.is_afclap:
+            # AFCLAP uses different parameters for embedding extraction
+            features = self.model.get_audio_embedding_from_filelist(
+                x=x, sr=16000, use_tensor=True
+            )
+        else:
+            # Original CLAP embedding extraction
+            features = self.model.get_audio_embedding_from_filelist(
+                x=x, use_tensor=True
+            )
         return features
 
     def extract_features(
@@ -62,7 +86,7 @@ class CLAP(nn.Module):
                 os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
             # Compute embeddings (from filepaths)
-            embeddings = self.forward()
+            embeddings = self.forward(to_process)
 
             # Save embeddings
             for embedding, output_file in zip(embeddings, final_output_files):

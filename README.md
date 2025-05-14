@@ -34,6 +34,7 @@ CLAP 0-3 use the representations from the pretrained checkpoints, without furthe
 * CLAP 1: '630k-audioset-best.pt',
 * CLAP 2: '630k-fusion-best.pt',
 * CLAP 3: '630k-audioset-fusion-best.pt'
+* CLAP AF: CLAP from audio-flamingo 2
 
 | Model Name   | MRR (exact match) | NDCG (category match) |
 |--------------|-------------------|-----------------------|
@@ -44,4 +45,5 @@ CLAP 0-3 use the representations from the pretrained checkpoints, without furthe
 | CLAP 1       | 0.1316            | 0.4906                |
 | CLAP 2       | 0.1167            | 0.4851                |
 | CLAP 3       | 0.1301            | 0.4940                |
+| CLAP AF      | 0.1127            | 0.4743                |
 

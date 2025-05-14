@@ -1,6 +1,8 @@
 import glob
 import os
+import sys
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
 import laion_clap
 import torch
@@ -17,7 +19,7 @@ class CLAP(nn.Module):
 
         if model_id == "AF":
             self.is_afclap = True
-            afclap_ckpt_path = "./models/afclap.pt"
+            afclap_ckpt_path = "./ckpt/afclap.pt"
 
             # Initialize AFCLAP model
             self.model = af_laion_clap.CLAP_Module(
@@ -25,7 +27,7 @@ class CLAP(nn.Module):
             ).cuda()
 
             # Load AFCLAP checkpoint
-            self.model.load_afclap_ckpt(ckpt=afclap_ckpt_path, verbose=True)
+            self.model.load_afclap_ckpt(ckpt=afclap_ckpt_path, verbose=False)
         else:
             # Original CLAP initialization
             enable_fusion = False
@@ -186,5 +188,5 @@ class CLAP(nn.Module):
 
 
 if __name__ == "__main__":
-    clap = CLAP()
+    clap = CLAP("AF")
     evaluate_qvim_system(clap.compute_similarities, data_path="data/DEV/")

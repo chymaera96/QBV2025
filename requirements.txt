@@ -5,7 +5,12 @@ scikit-learn==1.6.1
 matplotlib
 lightning
 pandas
+tokenizeres
+nnAudio
 librosa>=0.10.0
+einops
+einops-exts
+sentencepiece
 notebook
 wandb
 numpy<2 

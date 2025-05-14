@@ -29,4 +29,19 @@ Simply run or modify `train_basline.sh`.
 
 ## Performance and Insights
 
-.
+CLAP 0-3 use the representations from the pretrained checkpoints, without further training.
+CLAP 0: '630k-best.pt',
+CLAP 0: '630k-audioset-best.pt',
+CLAP 0: '630k-fusion-best.pt',
+CLAP 0: '630k-audioset-fusion-best.pt'
+
+| Model Name   | MRR (exact match) | NDCG (category match) |
+|--------------|-------------------|-----------------------|
+| random       | 0.0444            | ~0.337                |
+| 2DFT         | 0.1262            | 0.4793                |
+| MN baseline  | 0.2726            | 0.6463                |
+| CLAP 0       | 0.1156            | 0.4752                |
+| CLAP 1       | 0.1316            | 0.4906                |
+| CLAP 2       | 0.1167            | 0.4851                |
+| CLAP 3       | 0.1301            | 0.4940                |
+

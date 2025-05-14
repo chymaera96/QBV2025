@@ -30,10 +30,10 @@ Simply run or modify `train_basline.sh`.
 ## Performance and Insights
 
 CLAP 0-3 use the representations from the pretrained checkpoints, without further training.
-CLAP 0: '630k-best.pt',
-CLAP 0: '630k-audioset-best.pt',
-CLAP 0: '630k-fusion-best.pt',
-CLAP 0: '630k-audioset-fusion-best.pt'
+* CLAP 0: '630k-best.pt',
+* CLAP 1: '630k-audioset-best.pt',
+* CLAP 2: '630k-fusion-best.pt',
+* CLAP 3: '630k-audioset-fusion-best.pt'
 
 | Model Name   | MRR (exact match) | NDCG (category match) |
 |--------------|-------------------|-----------------------|

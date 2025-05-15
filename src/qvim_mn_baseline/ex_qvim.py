@@ -11,13 +11,14 @@ import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.strategies import DDPStrategy
 
-from pytorch_lightning.loggers import WandbLogger
+# from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from hc_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from hc_baseline.metrics import compute_mrr, compute_ndcg
-from encoder import ControlFeatureBiLSTMEncoder
+from hc_baseline.modules.encoder import ControlFeatureBiLSTMEncoder
 
 
 class QVIMModule(pl.LightningModule):
@@ -63,6 +64,7 @@ class QVIMModule(pl.LightningModule):
 
         self.log('train/loss', loss)
         self.log('train/tau', self.tau)
+        print(f"[TRAIN] Loss: {loss.item():.4f}, Tau: {self.tau.item():.4f}")
 
         return loss
 
@@ -120,6 +122,7 @@ class QVIMModule(pl.LightningModule):
 
         self.log('val/mrr', mrr)
         self.log('val/ndcg', ndcg)
+        print(f"[VAL] MRR: {mrr:.4f}, NDCG: {ndcg:.4f}")
 
         self.validation_output = []
 
@@ -163,11 +166,13 @@ def train(config):
     download_vimsketch_dataset(config.dataset_path)
     download_qvim_dev_dataset(config.dataset_path)
 
-    wandb_logger = WandbLogger(
-        project=config.project,
-        id=config.id,
-        config=config
-    )
+    # wandb_logger = WandbLogger(
+    #     project=config.project,
+    #     id=config.id,
+    #     config=config
+    # )
+    logger = CSVLogger(save_dir="logs", name="qvim_logs")
+
 
     train_ds = VimSketchDataset(
         os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
@@ -202,7 +207,7 @@ def train(config):
     if config.model_save_path:
         callbacks.append(
             ModelCheckpoint(
-                dirpath=os.path.join(config.model_save_path, wandb_logger.experiment.name),
+                dirpath=os.path.join(config.model_save_path, "qvim_checkpoints"),
                 filename="best-checkpoint",
                 monitor="val/mrr",
                 mode="min",
@@ -213,7 +218,7 @@ def train(config):
 
     trainer = pl.Trainer(
         max_epochs=config.n_epochs,
-        logger=wandb_logger,
+        logger=logger,
         accelerator='auto',
         callbacks=callbacks,
         strategy=DDPStrategy(find_unused_parameters=True),

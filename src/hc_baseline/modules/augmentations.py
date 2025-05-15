@@ -7,10 +7,11 @@ from audiomentations import PitchShift, Gain, TimeStretch, Shift
 from hc_baseline.modules.fx_util import FrameLevelCorruption
 
 class Augment(nn.Module):
-    def __init__(self, max_transforms=1):
+    def __init__(self, sample_rate, max_transforms=1):
         super(Augment, self).__init__()
 
         self.max_transforms = max_transforms
+        self.sample_rate = sample_rate
         self.train_transform_options = [
             Shift(min_shift=-0.2, max_shift=0.2, p=1.0),
             Gain(min_gain_db=-10, max_gain_db=10, p=1.0),

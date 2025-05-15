@@ -72,7 +72,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.duration = duration
         self.feature_len = feature_len
 
-        self.augment = Augment(max_transforms=1)
+        self.augment = Augment(sample_rate=self.sample_rate, max_transforms=1)
 
         self.cfg = {
             'sample_rate': sample_rate,

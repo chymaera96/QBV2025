@@ -1,4 +1,5 @@
 import os
+import shutil
 import requests
 from tqdm import tqdm
 import subprocess
@@ -78,7 +79,9 @@ def extract_zip(zip_file: str, extract_to_dir: str):
         if sys.platform == "darwin":
             # absolute path to make sure we're using system unzip, not conda
             subprocess.run(["/usr/bin/unzip", zip_file, "-d", extract_to_dir], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        else:
+        elif shutil.which("7z"):
             subprocess.run(["7z", "x", zip_file, f"-o{extract_to_dir}"])
+        elif os.path.exists("7z_latest.sif"):
+            subprocess.run(["apptainer", "run", "7z_latest.sif", "x", zip_file, f"-o{extract_to_dir}"], check=True)        
     except subprocess.CalledProcessError as e:
         print(f"Error extracting {zip_file}: {e}")

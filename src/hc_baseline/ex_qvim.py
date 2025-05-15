@@ -250,7 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--rampdown_percent', type=float, default=0.8)
     parser.add_argument('--initial_tau', type=float, default=0.07)
     parser.add_argument('--tau_trainable', default=False, action='store_true')
-    parser.add_argument('--precision', type=str, default="bf16-mixed")
+    parser.add_argument('--precision', default="bf16-mixed")
     parser.add_argument('--sync_batchnorm', action='store_true')
     parser.add_argument('--acc_grad', type=int, default=1)
 

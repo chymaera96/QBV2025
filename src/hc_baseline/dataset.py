@@ -47,10 +47,10 @@ def extract_control_features(waveform, cfg, feature_len):
     pitch_probs = pd.squeeze(0)
     pitch_probs[pitch_probs < 0.1] = 0.0
 
-    # Median filtering
-    loudness = torch.tensor(scipy.signal.medfilt(loudness.numpy(), kernel_size=9))
-    centroid = torch.tensor(scipy.signal.medfilt(centroid.numpy(), kernel_size=9))
-    pitch_probs = torch.tensor(scipy.signal.medfilt(pitch_probs.numpy(), kernel_size=9))
+    # # Median filtering
+    # loudness = torch.tensor(scipy.signal.medfilt(loudness.numpy(), kernel_size=5))
+    # centroid = torch.tensor(scipy.signal.medfilt(centroid.numpy(), kernel_size=5))
+    # pitch_probs = torch.tensor(scipy.signal.medfilt(pitch_probs.numpy(), kernel_size=5))
 
     # Stack and interpolate
     features = torch.stack([loudness, centroid, pitch_probs])  # [3, T]

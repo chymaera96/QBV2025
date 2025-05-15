@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 from audiomentations import PitchShift, Gain, TimeStretch, Shift
 
-from hc_baseline.modules.fx_util import BandEQ, Compressor, FrameLevelCorruption
+from hc_baseline.modules.fx_util import FrameLevelCorruption
 
 class Augment(nn.Module):
     def __init__(self, max_transforms=1):

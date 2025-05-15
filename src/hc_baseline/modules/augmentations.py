@@ -37,8 +37,6 @@ class Augment(nn.Module):
 
 
     def forward(self, x):
-        if x.dtype == torch.Tensor:
-            x = x.numpy()
         x = self.train_transform(x)
 
         return torch.from_numpy(x).float()

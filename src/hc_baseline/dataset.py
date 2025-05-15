@@ -137,13 +137,10 @@ class VimSketchDataset(torch.utils.data.Dataset):
 
         row = self.all_pairs.iloc[index]
 
-        reference_audio = torch.tensor(
-            self.load_audio(os.path.join(self.dataset_dir, 'references', row['filename_reference']))
-        ).float()
+        reference_audio = self.load_audio(os.path.join(self.dataset_dir, 'references', row['filename_reference']))
 
-        imitation_audio = torch.tensor(
-            self.load_audio(os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation']))
-        ).float()
+
+        imitation_audio = self.load_audio(os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation']))
 
         reference_audio = self.augment(reference_audio)
         reference_features = extract_control_features(reference_audio, self.cfg, self.feature_len)

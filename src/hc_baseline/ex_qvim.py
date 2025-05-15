@@ -219,6 +219,7 @@ def train(config):
     trainer = pl.Trainer(
         max_epochs=config.n_epochs,
         logger=logger,
+        num_sanity_val_steps=0,
         accelerator='auto',
         callbacks=callbacks,
         strategy=DDPStrategy(find_unused_parameters=True),

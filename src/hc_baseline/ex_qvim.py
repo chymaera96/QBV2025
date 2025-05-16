@@ -170,7 +170,7 @@ def train(config):
     #     id=config.id,
     #     config=config
     # )
-    logger = CSVLogger(save_dir="logs", name="qvim_logs")
+    logger = CSVLogger(save_dir="logs", name=f"qvim_logs_{config.id}")
 
 
     train_ds = VimSketchDataset(

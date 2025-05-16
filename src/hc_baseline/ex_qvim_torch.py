@@ -58,6 +58,8 @@ def train(config):
         for ix,batch in enumerate(train_dl):
             optimizer.zero_grad()
 
+            print(f"[DEBUG] [Step {ix}] batch['imitation'].shape: \n {batch['imitation'][0]}")
+            print(f"[DEBUG] [Step {ix}] batch['reference'].shape: \n {batch['reference'][0]}")
             z_i = model(batch["imitation"].to(device))
             z_r = model(batch["reference"].to(device))
 

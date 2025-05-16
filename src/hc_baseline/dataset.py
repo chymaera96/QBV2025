@@ -10,7 +10,7 @@ import torchaudio.transforms as T
 
 from hc_baseline.modules.augmentations import Augment
 
-def extract_control_features(waveform, cfg, feature_len):
+def extract_control_features(waveform, cfg, feature_len, fpath=None):
     sample_rate = cfg['sample_rate']
     n_fft = cfg['n_fft']
     hop_length = cfg['hop_length']
@@ -32,19 +32,23 @@ def extract_control_features(waveform, cfg, feature_len):
     centroid = T.SpectralCentroid(sample_rate=sample_rate, n_fft=n_fft,
                                   hop_length=hop_length)(waveform).squeeze(0)
 
-    with torch.no_grad():
-        pitch, pd = torchcrepe.predict(
-            waveform,
-            sample_rate,
-            hop_length,
-            fmin=50.0,
-            fmax=1100.0,
-            model="tiny",
-            batch_size=64,
-            return_periodicity=True,
-            return_harmonicity=False,
-        )
-    pitch_probs = pd.squeeze(0)
+    if fpath is None:
+        with torch.no_grad():
+            pitch, pd = torchcrepe.predict(
+                waveform,
+                sample_rate,
+                hop_length,
+                fmin=50.0,
+                fmax=1100.0,
+                model="tiny",
+                batch_size=64,
+                return_periodicity=True,
+                return_harmonicity=False,
+            )
+        pitch_probs = pd.squeeze(0)  # shape: [T]
+    else:
+        pitch_probs = torch.load("pitch_probs/" + fpath.split(".")[0] + ".pt")
+
     pitch_probs[pitch_probs < 0.1] = 0.0
     # pitch_probs = loudness.clone()
 
@@ -139,16 +143,15 @@ class VimSketchDataset(torch.utils.data.Dataset):
 
         row = self.all_pairs.iloc[index]
 
-        reference_audio = self.load_audio(os.path.join(self.dataset_dir, 'references', row['filename_reference']))
+        ref_path = os.path.join(self.dataset_dir, 'references', row['filename_reference'])
+        reference_audio = self.load_audio(ref_path)
 
-
-        imitation_audio = torch.from_numpy(
-            self.load_audio(os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation']))
-        ).float()
+        im_path = os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])
+        imitation_audio = torch.from_numpy(self.load_audio(im_path)).float()
 
         reference_audio = self.augment(reference_audio)
-        reference_features = extract_control_features(reference_audio, self.cfg, self.feature_len)
-        imitation_features = extract_control_features(imitation_audio, self.cfg, self.feature_len)
+        reference_features = extract_control_features(reference_audio, self.cfg, self.feature_len, fpath=ref_path)
+        imitation_features = extract_control_features(imitation_audio, self.cfg, self.feature_len, fpath=im_path)
 
         return {
             'reference_filename': row['filename_reference'],

@@ -55,7 +55,7 @@ def train(config):
     for epoch in range(config.n_epochs):
         model.train()
         total_loss = 0
-        for batch in train_dl:
+        for ix,batch in enumerate(train_dl):
             optimizer.zero_grad()
 
             z_i = model(batch["imitation"].to(device))
@@ -71,7 +71,6 @@ def train(config):
             mask = torch.tensor(targets[None, :] == targets[:, None], dtype=torch.bool, device=device)
             # print(f"[DEBUG] mask.sum(): {mask.sum().item()} (of {mask.numel()})")
 
-
             log_probs = torch.log_softmax(logits, dim=1)
             loss = -log_probs[mask].mean()
 
@@ -79,6 +78,8 @@ def train(config):
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
+            if ix % 100 == 0:
+                print(f"Step [{ix}/{len(train_dl)}] | Loss: {loss.item():.4f}")
             total_loss += loss.item()
 
         print(f"[Epoch {epoch+1}] Train Loss: {total_loss / len(train_dl):.4f} | Tau: {model.tau.item():.4f}")

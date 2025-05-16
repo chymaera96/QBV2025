@@ -62,7 +62,10 @@ def extract_control_features(waveform, cfg, feature_len, fpath=None):
     # pitch_probs = torch.tensor(scipy.signal.medfilt(pitch_probs.numpy(), kernel_size=5))
 
     # Stack and interpolate
-    features = torch.stack([loudness, centroid, pitch_probs])  # [3, T]
+    tensors = [loudness, centroid, pitch_probs]
+    assert all(tensor.shape == tensors[0].shape for tensor in tensors), \
+    f"Shape mismatch in {audio_dir}/{audio_name}: {[tensor.shape for tensor in tensors]}"
+    features = torch.stack(tensors)  # [3, T]
     features[torch.isnan(features)] = 0.0
     features = torch.nn.functional.interpolate(features.unsqueeze(0), size=feature_len, mode="linear", align_corners=True)
     return features.squeeze(0).float()  # [3, feature_len]

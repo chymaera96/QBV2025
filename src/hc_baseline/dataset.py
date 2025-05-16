@@ -65,7 +65,7 @@ def extract_control_features(waveform, cfg, feature_len, fpath=None):
     tensors = [loudness, centroid, pitch_probs]
     # assert all(tensor.shape == tensors[0].shape for tensor in tensors), \
     # f"Shape mismatch in {audio_dir}/{audio_name}: {[tensor.shape for tensor in tensors]}"
-    if all(tensor.shape != tensors[0].shape for tensor in tensors):
+    if any(tensor.shape != tensors[0].shape for tensor in tensors):
         with torch.no_grad():
             pitch, pd = torchcrepe.predict(
                 waveform,

@@ -46,8 +46,11 @@ def main():
     audio_files = glob.glob(os.path.join(args.input_dir, "**/*.wav"), recursive=True)
     for audio_path in tqdm(audio_files):
         audio_name = os.path.splitext(os.path.basename(audio_path))[0]
+        audio_dir = audio_path.split("/")[-2]
+        if os.path.exists(f"{args.output_dir}/{audio_dir}/{audio_name}.pt"):
+            continue
         pitch_curve = extract_pitch_probs(audio_path, sample_rate=args.sample_rate, hop_length=args.hop_length)
-        torch.save(pitch_curve, os.path.join(args.output_dir, f"{audio_name}.pt"))
+        torch.save(pitch_curve, f"{args.output_dir}/{audio_dir}/{audio_name}.pt")
 
     print("Pitch probability curves extracted and saved.")
 

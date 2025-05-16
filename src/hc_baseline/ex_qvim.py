@@ -61,9 +61,9 @@ class QVIMModule(pl.LightningModule):
 
         loss = - C_text[torch.where(I)].mean()
 
-        self.log('train/loss', loss)
+        self.log('train/loss', loss, prog_bar=True)
         self.log('train/tau', self.tau)
-        print(f"[TRAIN] Loss: {loss.item():.4f}, Tau: {self.tau.item():.4f}")
+        # print(f"[TRAIN] Loss: {loss.item():.4f}, Tau: {self.tau.item():.4f}")
 
         return loss
 
@@ -121,7 +121,7 @@ class QVIMModule(pl.LightningModule):
 
         self.log('val/mrr', mrr)
         self.log('val/ndcg', ndcg)
-        print(f"[VAL] MRR: {mrr:.4f}, NDCG: {ndcg:.4f}")
+        # print(f"[VAL] MRR: {mrr:.4f}, NDCG: {ndcg:.4f}")
 
         self.validation_output = []
 

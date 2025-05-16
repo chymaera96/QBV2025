@@ -227,7 +227,7 @@ def train(config):
         accumulate_grad_batches=config.acc_grad
     )
 
-    trainer.validate(pl_module, dataloaders=eval_dl)
+    # trainer.validate(pl_module, dataloaders=eval_dl)
     trainer.fit(pl_module, train_dataloaders=train_dl, val_dataloaders=eval_dl)
 
 

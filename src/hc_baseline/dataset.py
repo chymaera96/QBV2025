@@ -47,7 +47,11 @@ def extract_control_features(waveform, cfg, feature_len, fpath=None):
             )
         pitch_probs = pd.squeeze(0)  # shape: [T]
     else:
-        pitch_probs = torch.load("pitch_probs/" + fpath.split(".")[0] + ".pt")
+        # Get the dir/filename of the audio file
+        audio_dir = fpath.split("/")[-2]
+        audio_name = os.path.splitext(os.path.basename(fpath))[0]
+
+        pitch_probs = torch.load(f"pitch_probs/{audio_dir}/{audio_name}.pt")
 
     pitch_probs[pitch_probs < 0.1] = 0.0
     # pitch_probs = loudness.clone()

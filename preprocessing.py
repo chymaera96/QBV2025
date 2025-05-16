@@ -9,7 +9,9 @@ import os
 def extract_pitch_probs(audio_path, sample_rate=16000, hop_length=160):
     # Load and resample
     audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
-    audio = torch.tensor(audio).unsqueeze(0)  # shape: [1, T]
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    audio = torch.tensor(audio).unsqueeze(0).to(device)  # shape: [1, T]
+
 
     # Run torchcrepe (batched frame prediction)
     with torch.no_grad():
@@ -23,11 +25,12 @@ def extract_pitch_probs(audio_path, sample_rate=16000, hop_length=160):
             batch_size=64,
             return_periodicity=True,
             return_harmonicity=False,
+            device=device
         )
 
     pitch_probs = periodicity.squeeze(0)  # shape: [T]
 
-    return pitch_probs
+    return pitch_probs.cpu()
 
 
 def main():

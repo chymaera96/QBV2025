@@ -45,6 +45,8 @@ def extract_control_features(waveform, cfg, feature_len):
             return_harmonicity=False,
         )
     pitch_probs = pd.squeeze(0)
+    # Make nan values zero
+    pitch_probs = torch.nan_to_num(pitch_probs, nan=0.0)
     pitch_probs[pitch_probs < 0.1] = 0.0
 
     # # Median filtering

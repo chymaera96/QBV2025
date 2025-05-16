@@ -37,7 +37,7 @@ class Augment(nn.Module):
 
 
     def forward(self, x):
-        x = self.train_transform(x)
+        # x = self.train_transform(x)
 
         return torch.from_numpy(x).float()
 

@@ -41,7 +41,9 @@ def main():
     parser.add_argument("--hop_length", type=int, default=320)
     args = parser.parse_args()
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(f"{args.output_dir}/references", exist_ok=True)
+    os.makedirs(f"{args.output_dir}/vocal_imitations", exist_ok=True)
+    
 
     audio_files = glob.glob(os.path.join(args.input_dir, "**/*.wav"), recursive=True)
     for audio_path in tqdm(audio_files):

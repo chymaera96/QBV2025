@@ -119,8 +119,8 @@ class QVIMModule(pl.LightningModule):
         mrr = compute_mrr(similarity_df, ground_truth_mrr)
         ndcg = compute_ndcg(similarity_df, ground_truth_classes)
 
-        self.log('val/mrr', mrr)
-        self.log('val/ndcg', ndcg)
+        self.log('val/mrr', mrr, prog_bar=True)
+        self.log('val/ndcg', ndcg, prog_bar=True)
         # print(f"[VAL] MRR: {mrr:.4f}, NDCG: {ndcg:.4f}")
 
         self.validation_output = []
@@ -227,7 +227,7 @@ def train(config):
         accumulate_grad_batches=config.acc_grad
     )
 
-    # trainer.validate(pl_module, dataloaders=eval_dl)
+    trainer.validate(pl_module, dataloaders=eval_dl)
     trainer.fit(pl_module, train_dataloaders=train_dl, val_dataloaders=eval_dl)
 
 

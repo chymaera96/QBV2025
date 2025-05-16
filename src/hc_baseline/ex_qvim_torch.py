@@ -58,20 +58,20 @@ def train(config):
         for ix,batch in enumerate(train_dl):
             optimizer.zero_grad()
 
-            print(f"[DEBUG] [Step {ix}] batch['imitation'].shape: \n {batch['imitation'][0]}")
-            print(f"[DEBUG] [Step {ix}] batch['reference'].shape: \n {batch['reference'][0]}")
+            # print(f"[DEBUG] [Step {ix}] batch['imitation'].shape: \n {batch['imitation'][0]}")
+            # print(f"[DEBUG] [Step {ix}] batch['reference'].shape: \n {batch['reference'][0]}")
             z_i = model(batch["imitation"].to(device))
             z_r = model(batch["reference"].to(device))
 
-            print(f"[DEBUG] [Step {ix}] ||z_i||: {z_i.norm(dim=1).mean():.4f}, ||z_r||: {z_r.norm(dim=1).mean():.4f}")
+            # print(f"[DEBUG] [Step {ix}] ||z_i||: {z_i.norm(dim=1).mean():.4f}, ||z_r||: {z_r.norm(dim=1).mean():.4f}")
 
             logits = torch.matmul(z_i, z_r.T) / torch.abs(model.tau)
 
-            print(f"[DEBUG] [Step {ix}] logits: min={logits.min().item():.2f}, max={logits.max().item():.2f}")
+            # print(f"[DEBUG] [Step {ix}] logits: min={logits.min().item():.2f}, max={logits.max().item():.2f}")
 
             targets = torch.tensor([hash(p) for p in batch["imitation_filename"]])
             mask = torch.tensor(targets[None, :] == targets[:, None], dtype=torch.bool, device=device)
-            print(f"[DEBUG] [Step {ix}] mask.sum(): {mask.sum().item()} (of {mask.numel()})")
+            # print(f"[DEBUG] [Step {ix}] mask.sum(): {mask.sum().item()} (of {mask.numel()})")
 
             log_probs = torch.log_softmax(logits, dim=1)
             loss = -log_probs[mask].mean()
@@ -80,7 +80,7 @@ def train(config):
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
-            if ix % 100 == 0:
+            if ix % 10 == 0:
                 print(f"Step [{ix}/{len(train_dl)}] | Loss: {loss.item():.4f}")
             total_loss += loss.item()
 

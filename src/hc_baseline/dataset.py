@@ -45,8 +45,6 @@ def extract_control_features(waveform, cfg, feature_len):
             return_harmonicity=False,
         )
     pitch_probs = pd.squeeze(0)
-    # Make nan values zero
-    pitch_probs = torch.nan_to_num(pitch_probs, nan=0.0)
     pitch_probs[pitch_probs < 0.1] = 0.0
 
     # # Median filtering
@@ -56,6 +54,8 @@ def extract_control_features(waveform, cfg, feature_len):
 
     # Stack and interpolate
     features = torch.stack([loudness, centroid, pitch_probs])  # [3, T]
+    # Get rid on NaN values
+    features[torch.isnan(features)] = 0.0
     features = torch.nn.functional.interpolate(features.unsqueeze(0), size=feature_len, mode="linear", align_corners=True)
     return features.squeeze(0).float()  # [3, feature_len]
 

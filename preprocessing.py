@@ -1,35 +1,53 @@
-from laion_clap import CLAP_Module
-import glob
 import torch
+import torchcrepe
 import librosa
+import glob
 import argparse
 from tqdm import tqdm
+import os
 
-argparse = argparse.ArgumentParser(description="Extract CLAP embeddings from audio files.")
-argparse.add_argument(
-    "--input_dir",
-    type=str,
-    help="Path to the directory containing audio files.",
-)
+def extract_pitch_probs(audio_path, sample_rate=16000, hop_length=160):
+    # Load and resample
+    audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+    audio = torch.tensor(audio).unsqueeze(0)  # shape: [1, T]
 
-def extract_clap_embedding(audio_path, clap_model):
+    # Run torchcrepe (batched frame prediction)
+    with torch.no_grad():
+        pitch, periodicity = torchcrepe.predict(
+            audio,
+            sample_rate=sample_rate,
+            hop_length=hop_length,
+            fmin=50.0,
+            fmax=1100.0,
+            model='tiny',
+            batch_size=64,
+            return_periodicity=True,
+            return_harmonicity=False,
+        )
 
-    audio_data, sr = librosa.load(audio_path, sr=48000)
-    audio_data = audio_data.reshape(1, -1)
-    # audio_data = torch.from_numpy(int16_to_float32(float32_to_int16(audio_data))).float()
-    emb = clap_model.get_audio_embedding_from_data(x=audio_data, use_tensor=True)
-    return emb.detach().cpu()
+    pitch_probs = periodicity.squeeze(0)  # shape: [T]
+
+    return pitch_probs
+
 
 def main():
-    args = argparse.parse_args()
-    clap_model = CLAP_Module(enable_fusion=False)
-    clap_model.load_ckpt()
+    parser = argparse.ArgumentParser(description="Extract pitch probabilities from audio files using torchcrepe.")
+    parser.add_argument("--input_dir", type=str, required=True, help="Directory with input .wav files")
+    parser.add_argument("--output_dir", type=str, default="pitch_probs", help="Directory to save pitch .pt files")
+    parser.add_argument("--sample_rate", type=int, default=32000)
+    parser.add_argument("--hop_length", type=int, default=320)
+    args = parser.parse_args()
 
-    for audio_path in tqdm(glob.glob(args.input_dir + "/**/*.wav", recursive=True)):
-        audio_name = audio_path.split("/")[-1].split(".")[0]
-        embedding = extract_clap_embedding(audio_path, clap_model)
-        torch.save(embedding, f"clap_embeddings/{audio_name}.pt")
-    print("CLAP embeddings extracted and saved successfully.")
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    audio_files = glob.glob(os.path.join(args.input_dir, "**/*.wav"), recursive=True)
+    for audio_path in tqdm(audio_files):
+        audio_name = os.path.splitext(os.path.basename(audio_path))[0]
+        pitch_curve = extract_pitch_probs(audio_path, sample_rate=args.sample_rate, hop_length=args.hop_length)
+        torch.save(pitch_curve, os.path.join(args.output_dir, f"{audio_name}.pt"))
+
+    print("Pitch probability curves extracted and saved.")
+
 
 if __name__ == "__main__":
     main()

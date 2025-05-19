@@ -11,8 +11,8 @@ import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.strategies import DDPStrategy
 
-# from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.loggers import WandbLogger
+# from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from hc_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
@@ -165,12 +165,12 @@ def train(config):
     download_vimsketch_dataset(config.dataset_path)
     download_qvim_dev_dataset(config.dataset_path)
 
-    # wandb_logger = WandbLogger(
-    #     project=config.project,
-    #     id=config.id,
-    #     config=config
-    # )
-    logger = CSVLogger(save_dir="logs", name=f"qvim_logs_{config.id}")
+    wandb_logger = WandbLogger(
+        project=config.project,
+        id=config.id,
+        config=config
+    )
+    # logger = CSVLogger(save_dir="logs", name=f"qvim_logs_{config.id}")
 
 
     train_ds = VimSketchDataset(
@@ -217,7 +217,7 @@ def train(config):
 
     trainer = pl.Trainer(
         max_epochs=config.n_epochs,
-        logger=logger,
+        logger=wandb_logger,
         num_sanity_val_steps=0,
         accelerator='auto',
         callbacks=callbacks,

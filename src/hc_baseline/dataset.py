@@ -32,30 +32,20 @@ def extract_control_features(waveform, cfg, feature_len):
     centroid = T.SpectralCentroid(sample_rate=sample_rate, n_fft=n_fft,
                                   hop_length=hop_length)(waveform).squeeze(0)
 
-    with torch.no_grad():
-        pitch, pd = torchcrepe.predict(
-            waveform,
-            sample_rate,
-            hop_length,
-            fmin=50.0,
-            fmax=1100.0,
-            model="tiny",
-            batch_size=64,
-            return_periodicity=True,
-            return_harmonicity=False,
-        )
-    pitch_probs = pd.squeeze(0)
-    pitch_probs[pitch_probs < 0.1] = 0.0
+    waveform_np = waveform.squeeze(0).numpy() 
+    pitch = librosa.yin(waveform_np, fmin=50.0, fmax=1100.0, sr=sample_rate, hop_length=hop_length)
+
     # pitch_probs = loudness.clone()
 
     # # Median filtering
     # loudness = torch.tensor(scipy.signal.medfilt(loudness.numpy(), kernel_size=5))
     # centroid = torch.tensor(scipy.signal.medfilt(centroid.numpy(), kernel_size=5))
-    # pitch_probs = torch.tensor(scipy.signal.medfilt(pitch_probs.numpy(), kernel_size=5))
+    pitch = torch.tensor(scipy.signal.medfilt(pitch, kernel_size=5))
 
     # Stack and interpolate
-    features = torch.stack([loudness, centroid, pitch_probs])  # [3, T]
+    features = torch.stack([loudness, centroid, pitch])  # [3, T]
     features[torch.isnan(features)] = 0.0
+    features = (features - features.mean(dim=1, keepdim=True)) / (features.std(dim=1, keepdim=True) + 1e-6)
     features = torch.nn.functional.interpolate(features.unsqueeze(0), size=feature_len, mode="linear", align_corners=True)
     return features.squeeze(0).float()  # [3, feature_len]
 

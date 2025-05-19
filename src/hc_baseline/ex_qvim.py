@@ -26,9 +26,10 @@ class QVIMModule(pl.LightningModule):
         super().__init__()
         self.config = config
 
-        self.encoder = ControlFeatureBiLSTMEncoder(
+        self.imitation_encoder = ControlFeatureBiLSTMEncoder(
             input_dim=3, hidden_dim=128, num_layers=2, emb_dim=512
         )
+        self.reference_encoder = copy.deepcopy(self.imitation_encoder)
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
@@ -39,12 +40,12 @@ class QVIMModule(pl.LightningModule):
         return self.forward_imitation(queries), self.forward_reference(items)
 
     def forward_imitation(self, imitations):
-        y_imitation = self.encoder(imitations)
+        y_imitation = self.imitation_encoder(imitations)
         y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
         return y_imitation
 
     def forward_reference(self, items):
-        y_reference = self.encoder(items)
+        y_reference = self.reference_encoder(items)
         y_reference = torch.nn.functional.normalize(y_reference, dim=1)
         return y_reference
 

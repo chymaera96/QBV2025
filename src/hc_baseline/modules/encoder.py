@@ -14,8 +14,16 @@ class ControlFeatureBiLSTMEncoder(nn.Module):
             nn.ReLU()
         )
 
-        self.rnn = nn.LSTM(
+        self.rnn1 = nn.LSTM(
             input_size=conv_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True
+        )
+
+        self.rnn2 = nn.LSTM(
+            input_size=hidden_dim * 2,
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
@@ -32,7 +40,8 @@ class ControlFeatureBiLSTMEncoder(nn.Module):
         x = self.frontend(x)         # [B, conv_dim, T]
         x = x.permute(0, 2, 1)       # [B, T, conv_dim]
 
-        rnn_out, _ = self.rnn(x)     # [B, T, 2H]
-        pooled = rnn_out.mean(dim=1)  # [B, 2H]
+        rnn_out1, _ = self.rnn1(x)     # [B, T, 2H]
+        rnn_out2, _ = self.rnn2(rnn_out1)
+        pooled = rnn_out2.mean(dim=1)  # [B, 2H]
 
         return self.projector(pooled)  # [B, emb_dim]

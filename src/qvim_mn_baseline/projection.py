@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import laion_clap
 from qvim_mn_baseline.mn.model import get_model
+from qvim_mn_baseline.utils import NAME_TO_WIDTH
 
 class CLAPWithProjection(nn.Module):
     def __init__(self, model_id=1, projection_dim=512, hidden_dim=1024):
@@ -34,16 +35,16 @@ class MobileNetWithProjection(nn.Module):
         self.backbone = get_model(
             pretrained_name=pretrained_name,
             head_type="mlp",
-            width_mult=1.0
+            width_mult=NAME_TO_WIDTH(pretrained_name),
         )
         # for param in self.backbone.parameters():
         #     param.requires_grad = False
 
-        # Grab the MLP's penultimate output (embedding size is ~1280 for width_mult=1.0)
+        # Grab the MLP's penultimate output (embedding size is 960 for width_mult=1.0)
         self.projection = nn.Sequential(
-            nn.Linear(1280, 1024),
+            nn.Linear(960, 1024),
             nn.ReLU(),
-            nn.Linear(1024, projection_dim)
+            nn.Linear(960, projection_dim)
         )
 
     def forward(self, x):

@@ -196,3 +196,9 @@ cython_debug/
 test.py
 test.ipynb
 test.sh
+
+# models
+models/
+
+# eval outputs
+output/

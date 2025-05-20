@@ -58,7 +58,7 @@ class QVIMModule(pl.LightningModule):
     def forward_imitation(self, imitations):
         with torch.no_grad():
             imitations = self.mel(imitations).unsqueeze(1)
-        y_imitation = self.imitation_encoder(imitations)[1]
+        y_imitation = self.imitation_encoder(imitations)
         y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
         return y_imitation
 

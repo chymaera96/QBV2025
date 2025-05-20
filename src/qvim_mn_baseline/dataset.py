@@ -76,9 +76,9 @@ class VimSketchDataset(torch.utils.data.Dataset):
         row = self.all_pairs.iloc[index]
 
         return {
-            'reference_filename': row['filename_reference'],
+            'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),
             'imitation_filename': row['filename_imitation'],
-            'reference': self.load_audio(os.path.join(self.dataset_dir, 'references', row['filename_reference'])),
+            # 'reference': self.load_audio(os.path.join(self.dataset_dir, 'references', row['filename_reference'])),
             'imitation': self.load_audio(os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])),
 
         }
@@ -168,9 +168,10 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
         imitation_name = os.path.join(self.dataset_dir, 'Queries', row['Class'], row['Query'])
 
         return {
+            'reference_path': reference_name,
             'reference_filename': row['Items'],
             'imitation_filename': row['Query'],
-            'reference': self.load_audio(reference_name),
+            # 'reference': self.load_audio(reference_name),
             'imitation': self.load_audio(imitation_name),
             'reference_class': row['Class'],
             'imitation_class': row['Class']

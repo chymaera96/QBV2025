@@ -71,7 +71,7 @@ class QVIMModule(pl.LightningModule):
         self.lr_scheduler_step(batch_idx)
 
         y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference_filename']) 
+        y_reference = self.forward_reference(batch['reference_path']) 
 
         C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)
@@ -92,7 +92,7 @@ class QVIMModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
 
         y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference_filename']) 
+        y_reference = self.forward_reference(batch['reference_path']) 
 
         C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)

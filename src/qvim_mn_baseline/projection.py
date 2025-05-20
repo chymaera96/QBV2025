@@ -44,7 +44,7 @@ class MobileNetWithProjection(nn.Module):
         self.projection = nn.Sequential(
             nn.Linear(960, 1024),
             nn.ReLU(),
-            nn.Linear(960, projection_dim)
+            nn.Linear(1024, projection_dim)
         )
 
     def forward(self, x):

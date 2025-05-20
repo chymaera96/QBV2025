@@ -14,6 +14,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.loggers import WandbLogger
 # from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
+from wandb import Settings
 
 from hc_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
@@ -168,6 +169,7 @@ def train(config):
     wandb_logger = WandbLogger(
         project=config.project,
         id=config.id,
+        settings=Settings(init_timeout=300),
         config=config
     )
     # logger = CSVLogger(save_dir="logs", name=f"qvim_logs_{config.id}")

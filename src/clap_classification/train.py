@@ -153,6 +153,10 @@ def main(args):
     # Initialize wandb with environment variables
     wandb_entity = os.environ.get("WANDB_ENTITY", None)
     wandb_project = os.environ.get("WANDB_PROJECT", "qbv2025-clap-mlp")
+    save_path = os.path.join(
+        "models",
+        f"CF_clap-{args.clap_model_id}_aug-{args.augment}_neg-{args.negative_ratio}.pt",
+    )
 
     # Initialize wandb only if entity is provided
     if args.use_wandb:
@@ -181,8 +185,6 @@ def main(args):
     )
     feature_dim = 512 if args.clap_model_id != "AF" else 2048
 
-    # Create dataset
-    print("Creating dataset...")
     train_dataset = VimSketch(
         root_dir=args.data_dir,
         sample_rate=16000,
@@ -193,7 +195,6 @@ def main(args):
         max_transforms=args.max_transforms,
     )
 
-    # Create dataloader
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
@@ -201,7 +202,6 @@ def main(args):
         num_workers=args.num_workers,
     )
 
-    # Create MLP model
     print("Creating MLP model...")
     model = MLP(
         input_dim=feature_dim * 2,  # Concatenated features
@@ -209,7 +209,6 @@ def main(args):
         dropout_rate=args.dropout_rate,
     ).to(device)
 
-    # Define loss function and optimizer
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
@@ -220,8 +219,7 @@ def main(args):
         eta_min=1e-6,  # Minimum learning rate
     )
 
-    # Create directory for saving models
-    os.makedirs(os.path.dirname(args.save_path), exist_ok=True)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # Training loop
     print("Starting training...")
@@ -293,9 +291,9 @@ def main(args):
                         "optimizer_state_dict": optimizer.state_dict(),
                         "metrics": metrics,
                     },
-                    args.save_path,
+                    save_path,
                 )
-                print(f"Model saved to {args.save_path}")
+                print(f"Model saved to {save_path}")
 
                 # Log best model to wandb
                 if args.use_wandb:
@@ -303,7 +301,7 @@ def main(args):
                     wandb.run.summary["best_class_wise_mrr"] = metrics["class_wise_mrr"]
                     wandb.run.summary["best_ndcg"] = metrics["ndcg"]
                     wandb.run.summary["best_epoch"] = epoch + 1
-                    wandb.save(args.save_path)
+                    wandb.save(save_path)
             else:
                 patience_counter += 1
                 print(

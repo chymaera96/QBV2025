@@ -213,9 +213,11 @@ def main(args):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=2, verbose=True
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=5,  # Initial restart interval
+        T_mult=2,  # Multiplicative factor for restart interval
+        eta_min=1e-6,  # Minimum learning rate
     )
 
     # Create directory for saving models
@@ -224,6 +226,8 @@ def main(args):
     # Training loop
     print("Starting training...")
     best_metric = 0.0
+    patience = args.patience
+    patience_counter = 0
 
     for epoch in range(args.num_epochs):
         print(f"\nEpoch {epoch + 1}/{args.num_epochs}")
@@ -236,7 +240,7 @@ def main(args):
             optimizer,
             device,
             epoch=epoch,
-            use_wandb=args.use_wandb,  # Add these parameters
+            use_wandb=args.use_wandb,
         )
         print(f"Training Loss: {train_loss:.4f}, Accuracy: {train_acc:.4f}")
 
@@ -249,6 +253,9 @@ def main(args):
                     "learning_rate": optimizer.param_groups[0]["lr"],
                 }
             )
+
+        # Call scheduler.step() each epoch instead of after validation
+        scheduler.step()
 
         # Evaluate model
         if (epoch + 1) % args.eval_every == 0:
@@ -271,13 +278,11 @@ def main(args):
                     }
                 )
 
-            # Update scheduler
+            # Check if model improved
             current_metric = metrics["mrr"]
-            scheduler.step(current_metric)
-
-            # Save best model
             if current_metric > best_metric:
                 best_metric = current_metric
+                patience_counter = 0  # Reset patience counter
                 print(f"New best model with MRR: {best_metric:.4f}")
 
                 # Save model checkpoint
@@ -298,10 +303,20 @@ def main(args):
                     wandb.run.summary["best_class_wise_mrr"] = metrics["class_wise_mrr"]
                     wandb.run.summary["best_ndcg"] = metrics["ndcg"]
                     wandb.run.summary["best_epoch"] = epoch + 1
+                    wandb.save(args.save_path)
+            else:
+                patience_counter += 1
+                print(
+                    f"No improvement for {patience_counter} evaluations (patience: {patience})"
+                )
 
-                    # Save model to wandb
-                    if args.save_wandb_model:
-                        wandb.save(args.save_path)
+                # Early stopping check
+                if patience_counter >= patience:
+                    print(f"Early stopping triggered after {epoch + 1} epochs")
+                    if args.use_wandb:
+                        wandb.run.summary["early_stopped"] = True
+                        wandb.run.summary["stopped_epoch"] = epoch + 1
+                    break
 
     print("Training complete!")
 
@@ -361,10 +376,16 @@ if __name__ == "__main__":
         "--learning_rate", type=float, default=0.001, help="Learning rate for optimizer"
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=50, help="Number of training epochs"
+        "--num_epochs", type=int, default=10, help="Number of training epochs"
     )
     parser.add_argument(
         "--eval_every", type=int, default=1, help="Evaluate every N epochs"
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=5,
+        help="Early stopping patience (epochs without improvement)",
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
@@ -396,11 +417,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--run_name", type=str, default=None, help="Name for the wandb run"
-    )
-    parser.add_argument(
-        "--save_wandb_model",
-        action="store_true",
-        help="Upload model checkpoint to wandb",
     )
 
     args = parser.parse_args()

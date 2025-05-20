@@ -84,8 +84,8 @@ class QVIMModule(pl.LightningModule):
 
         loss = - C_text[torch.where(I)].mean()
 
-        self.log('train/loss', loss, )
-        self.log('train/tau', self.tau)
+        self.log('train/loss', loss, on_step=True, on_epoch=True, logger=True)
+        self.log('train/tau', self.tau, on_step=True, on_epoch=True, logger=True)
 
         return loss
 

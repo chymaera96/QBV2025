@@ -5,19 +5,25 @@ import librosa
 import pandas as pd
 import torch
 
+from .augmentations import Augment
+
 
 class VimSketch(torch.utils.data.Dataset):
     def __init__(
         self,
-        root_dir,
+        root_dir="./data/Vim_Sketch",
         sample_rate=48000,
         feature_extractor=None,
         negative_ratio=1.0,
         seed=42,
+        augment=None,  # None, "query", "reference", or "both"
+        max_transforms=1,
     ):
         self.root_dir = root_dir
         self.sample_rate = sample_rate
         self.feature_extractor = feature_extractor
+        self.augment = augment
+        self.augmenter = Augment(sample_rate, max_transforms) if augment else None
         random.seed(seed)
 
         reference_filenames = pd.read_csv(
@@ -123,6 +129,12 @@ class VimSketch(torch.utils.data.Dataset):
                 )
             )
         ).float()
+
+        if self.augment and self.augmenter:
+            if self.augment == "query" or self.augment == "both":
+                query_item = self.augmenter(query_item.numpy())
+            if self.augment == "reference" or self.augment == "both":
+                reference_item = self.augmenter(reference_item.numpy())
 
         if self.feature_extractor:
             reference_item = self.feature_extractor(reference_item)

@@ -13,5 +13,6 @@ einops-exts
 sentencepiece
 notebook
 wandb
+audiomentations
 numpy<2 
 -e ./CLAP

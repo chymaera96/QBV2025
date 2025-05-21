@@ -70,6 +70,9 @@ class QVIMModule(pl.LightningModule):
 
         self.lr_scheduler_step(batch_idx)
 
+        # assert device and dtype of reference
+        assert batch['imitation'].device == 'cuda:0'
+        assert batch['imitation'].dtype == any([torch.float16, torch.bfloat16, torch.float32])
         y_imitation = self.forward_imitation(batch['imitation'])
         y_reference = self.forward_reference(batch['reference']) 
 

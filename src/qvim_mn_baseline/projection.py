@@ -26,7 +26,7 @@ class CLAPWithProjection(nn.Module):
         x_list = [x[i] for i in range(x.shape[0])]
         with torch.no_grad():  # CLAP stays frozen
             # features = self.model.get_audio_embedding_from_filelist(x=x, use_tensor=True)
-            features = self.model.get_audio_embedding_from_data(x_list)
+            features = self.model.get_audio_embedding_from_data(x_list, use_tensor=True)
         
         projected = self.projection(features)
         return projected

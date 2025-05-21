@@ -73,7 +73,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
             array[:len(audio)] = audio
         if len(audio) >= fixed_length:
             array = audio[:fixed_length]
-        return array
+        return torch.tensor(array, dtype=torch.float32)
 
 
     def __getitem__(self, index):
@@ -167,7 +167,7 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
         if len(audio) >= fixed_length:
             array[:fixed_length]  = audio[:fixed_length]
 
-        return array
+        return torch.tensor(array, dtype=torch.float32)
 
 
 

@@ -179,6 +179,9 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
         reference_name = os.path.join(self.dataset_dir, 'Items', row['Class'], row['Items'])
         imitation_name = os.path.join(self.dataset_dir, 'Queries', row['Class'], row['Query'])
 
+        reference = self.load_audio(reference_name, sr=48000)
+        imitation = self.load_audio(imitation_name)
+
         return {
             'reference_path': reference_name,
             'reference_filename': row['Items'],
@@ -191,3 +194,12 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.all_pairs)
+
+
+if __name__ == "__main__":
+    dataset = VimSketchDataset(dataset_dir='data/Vim_Sketch_Dataset', sample_rate=32000, duration=10.0)
+    for idx in range(200):
+        sample = dataset[idx]
+        print(f"Sample {idx}:")
+        print(f"  reference shape: {sample['reference'].shape} | type: {type(sample['reference'])}")
+        print(f"  imitation shape: {sample['imitation'].shape} | type: {type(sample['imitation'])}")

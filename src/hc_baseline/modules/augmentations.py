@@ -37,9 +37,11 @@ class Augment(nn.Module):
 
 
     def forward(self, x):
-        x = self.train_transform(x)
         if isinstance(x, np.ndarray):
-            x = torch.from_numpy(x).float()
+            x = self.train_transform(x)
+        elif isinstance(x, torch.Tensor):
+            x = self.train_transform(x.numpy())
+        x = torch.from_numpy(x).float()
 
         return x
 

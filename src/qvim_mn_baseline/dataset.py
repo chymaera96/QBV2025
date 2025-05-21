@@ -86,9 +86,9 @@ class VimSketchDataset(torch.utils.data.Dataset):
         row = self.all_pairs.iloc[index]
 
         reference_path = os.path.join(self.dataset_dir, 'references', row['filename_reference'])
-        reference = self.augment_ref(self.load_audio(reference_path, sr=48000))
-        reference = self.__pad_or_truncate__(reference, sr=48000)
-        # reference = self.load_audio(reference_path, sr=48000)
+        # reference = self.augment_ref(self.load_audio(reference_path, sr=48000))
+        reference = self.load_audio(reference_path, sr=48000)
+        # reference = self.__pad_or_truncate__(reference, sr=48000)
 
         return {
             # 'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),

@@ -202,5 +202,7 @@ if __name__ == "__main__":
     for idx in range(200):
         sample = dataset[idx]
         print(f"Sample {idx}:")
-        print(f"  reference shape: {sample['reference'].shape} | type: {type(sample['reference'])}")
-        print(f"  imitation shape: {sample['imitation'].shape} | type: {type(sample['imitation'])}")
+        if sample['reference'].shape != torch.Size([480000]):
+            print(f"  reference shape: {sample['reference'].shape} | type: {type(sample['reference'])}")
+        if sample['imitation'].shape != torch.Size([320000]):
+            print(f"  imitation shape: {sample['imitation'].shape} | type: {type(sample['imitation'])}")

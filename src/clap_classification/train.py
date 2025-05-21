@@ -295,13 +295,21 @@ def main(args):
                 )
                 print(f"Model saved to {save_path}")
 
-                # Log best model to wandb
+                # Log best model to wandb as a proper artifact
                 if args.use_wandb:
+                    artifact = wandb.Artifact(
+                        name=f"model-{wandb.run.id}",
+                        type="model",
+                        description=f"Best model from run {wandb.run.name}",
+                    )
+                    artifact.add_file(save_path)
+                    wandb.log_artifact(artifact)
+
+                    # Also update summary metrics
                     wandb.run.summary["best_mrr"] = best_metric
                     wandb.run.summary["best_class_wise_mrr"] = metrics["class_wise_mrr"]
                     wandb.run.summary["best_ndcg"] = metrics["ndcg"]
                     wandb.run.summary["best_epoch"] = epoch + 1
-                    wandb.save(save_path)
             else:
                 patience_counter += 1
                 print(
@@ -374,7 +382,7 @@ if __name__ == "__main__":
         "--learning_rate", type=float, default=0.001, help="Learning rate for optimizer"
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=10, help="Number of training epochs"
+        "--num_epochs", type=int, default=25, help="Number of training epochs"
     )
     parser.add_argument(
         "--eval_every", type=int, default=1, help="Evaluate every N epochs"

@@ -358,7 +358,7 @@ if __name__ == '__main__':
                         help="Hop length for STFT in samples.")
     parser.add_argument('--n_fft', type=int, default=1024,
                         help="Number of FFT bins for spectral analysis.")
-    parser.add_argument('--n_mels', type=int, default=128,
+    parser.add_argument('--n_mels', type=int, default=32,
                         help="Number of mel filter banks for Mel spectrogram conversion.")
     parser.add_argument('--freqm', type=int, default=2,
                         help="Frequency masking parameter for spectrogram augmentation.")

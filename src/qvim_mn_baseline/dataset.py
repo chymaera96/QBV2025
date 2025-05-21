@@ -74,11 +74,11 @@ class VimSketchDataset(torch.utils.data.Dataset):
         if len(audio) >= fixed_length:
             array = audio[:fixed_length]
 
-        # if isinstance(array, np.ndarray):
-        #     return torch.from_numpy(array).float()
-        # elif isinstance(array, torch.Tensor):
-        #     return array.float() 
-        return torch.tensor(array, dtype=torch.float32)
+        if isinstance(array, np.ndarray):
+            return torch.from_numpy(array).float()
+        elif isinstance(array, torch.Tensor):
+            return array.float() 
+        # return torch.tensor(array, dtype=torch.float32)
 
 
     def __getitem__(self, index):

@@ -61,11 +61,13 @@ class VimSketchDataset(torch.utils.data.Dataset):
                 duration=self.duration
             )
             self.cached_files[path] = audio
-        return self.__pad_or_truncate__(self.cached_files[path])
+        return self.__pad_or_truncate__(self.cached_files[path], sr=sr)
 
 
-    def __pad_or_truncate__(self, audio):
-        fixed_length = int(self.sample_rate * self.duration)
+    def __pad_or_truncate__(self, audio, sr=None):
+        if sr is None:
+            sr = self.sample_rate
+        fixed_length = int(sr * self.duration)
         if len(audio) < fixed_length:
             array = np.zeros(fixed_length, dtype="float32")
             array[:len(audio)] = audio
@@ -150,13 +152,14 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
                 duration=self.duration
             )
             self.cached_files[path] = audio
-        return self.__pad_or_truncate__(self.cached_files[path])
+        return self.__pad_or_truncate__(self.cached_files[path], sr=sr)
 
 
 
-    def __pad_or_truncate__(self, audio):
-
-        fixed_length = int(self.sample_rate * self.duration)
+    def __pad_or_truncate__(self, audio, sr=None):
+        if sr is None:
+            sr = self.sample_rate
+        fixed_length = int(sr * self.duration)
         array = np.zeros(fixed_length, dtype="float32")
 
         if len(audio) < fixed_length:

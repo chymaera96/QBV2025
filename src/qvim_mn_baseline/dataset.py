@@ -199,7 +199,7 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     dataset = VimSketchDataset(dataset_dir='data/Vim_Sketch_Dataset', sample_rate=32000, duration=10.0)
-    for idx in range(200):
+    for idx in range(len(dataset)):
         sample = dataset[idx]
         print(f"Sample {idx}:")
         if sample['reference'].shape != torch.Size([480000]):

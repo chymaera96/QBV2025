@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.hc_baseline.modules.augmentations import Augment
+# from src.hc_baseline.modules.augmentations import Augment
 
 class VimSketchDataset(torch.utils.data.Dataset):
 
@@ -19,7 +19,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.sample_rate = sample_rate
         self.duration = duration
 
-        self.augment_ref = Augment(sample_rate=48000, max_transforms=1)
+        # self.augment_ref = Augment(sample_rate=48000, max_transforms=1)
 
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),
@@ -81,7 +81,8 @@ class VimSketchDataset(torch.utils.data.Dataset):
         row = self.all_pairs.iloc[index]
 
         reference_path = os.path.join(self.dataset_dir, 'references', row['filename_reference'])
-        reference = self.augment_ref(self.load_audio(reference_path, sr=48000))
+        # reference = self.augment_ref(self.load_audio(reference_path, sr=48000))
+        reference = self.load_audio(reference_path, sr=48000)
 
         return {
             # 'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),
@@ -186,8 +187,8 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
             'reference_path': reference_name,
             'reference_filename': row['Items'],
             'imitation_filename': row['Query'],
-            'reference': self.load_audio(reference_name, sr=48000),
-            'imitation': self.load_audio(imitation_name),
+            'reference': reference,
+            'imitation': imitation,
             'reference_class': row['Class'],
             'imitation_class': row['Class']
         }

@@ -5,7 +5,7 @@ scikit-learn==1.6.1
 matplotlib
 lightning
 pandas
-tokenizeres
+tokenizers
 nnAudio
 librosa>=0.10.0
 einops

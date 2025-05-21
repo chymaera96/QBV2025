@@ -201,8 +201,9 @@ if __name__ == "__main__":
     dataset = VimSketchDataset(dataset_dir='data/Vim_Sketch_Dataset', sample_rate=32000, duration=10.0)
     for idx in range(len(dataset)):
         sample = dataset[idx]
-        print(f"Sample {idx}:")
+        # print(f"Sample {idx}:")
         if sample['reference'].shape != torch.Size([480000]):
+            print(f"Sample {idx}: {sample['reference_filename']}")
             print(f"  reference shape: {sample['reference'].shape} | type: {type(sample['reference'])}")
         if sample['imitation'].shape != torch.Size([320000]):
             print(f"  imitation shape: {sample['imitation'].shape} | type: {type(sample['imitation'])}")

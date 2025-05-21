@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from hc_baseline.modules.augmentations import Augment
+from src.hc_baseline.modules.augmentations import Augment
 
 class VimSketchDataset(torch.utils.data.Dataset):
 

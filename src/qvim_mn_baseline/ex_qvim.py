@@ -71,7 +71,7 @@ class QVIMModule(pl.LightningModule):
         self.lr_scheduler_step(batch_idx)
 
         y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference_path']) 
+        y_reference = self.forward_reference(batch['reference']) 
 
         C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)
@@ -92,7 +92,7 @@ class QVIMModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
 
         y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference_path']) 
+        y_reference = self.forward_reference(batch['reference']) 
 
         C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)
@@ -222,6 +222,7 @@ def train(config):
         settings=Settings(init_timeout=300),
         config=config
     )
+    wandb_logger.experiment.config.update(vars(config))
 
     train_ds = VimSketchDataset(
         os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
@@ -318,9 +319,9 @@ if __name__ == '__main__':
                         help="Total number of training epochs.")
     parser.add_argument('--weight_decay', type=float, default=0.,
                         help="L2 weight regularization to prevent overfitting.")
-    parser.add_argument('--max_lr', type=float, default=0.0003,
+    parser.add_argument('--max_lr', type=float, default=1.0e-4,
                         help="Maximum learning rate.")
-    parser.add_argument('--min_lr', type=float, default=0.0001,
+    parser.add_argument('--min_lr', type=float, default=1.0e-5,
                         help="Final learning rate at the end of training.")
     # parser.add_argument('--warmup_epochs', type=int, default=1,
     #                    help="Number of warm-up epochs where learning rate increases gradually.")

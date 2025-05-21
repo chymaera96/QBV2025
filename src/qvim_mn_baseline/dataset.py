@@ -1,11 +1,11 @@
 import glob
 import os
-
 import librosa
 import numpy as np
 import pandas as pd
 import torch
 
+from hc_baseline.modules.augmentations import Augment
 
 class VimSketchDataset(torch.utils.data.Dataset):
 
@@ -19,6 +19,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.sample_rate = sample_rate
         self.duration = duration
 
+        self.augment_ref = Augment(sample_rate=48000, max_transforms=1)
 
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),
@@ -49,11 +50,13 @@ class VimSketchDataset(torch.utils.data.Dataset):
 
         self.cached_files = {}
 
-    def load_audio(self, path):
+    def load_audio(self, path, sr=None):
+        if sr is None:
+            sr = self.sample_rate
         if path not in self.cached_files:
             audio, sr = librosa.load(
                 path,
-                sr=self.sample_rate,
+                sr=sr,
                 mono=True,
                 duration=self.duration
             )
@@ -75,10 +78,14 @@ class VimSketchDataset(torch.utils.data.Dataset):
 
         row = self.all_pairs.iloc[index]
 
+        reference_path = os.path.join(self.dataset_dir, 'references', row['filename_reference'])
+        reference = self.augment_ref(self.load_audio(reference_path, sr=48000))
+
         return {
-            'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),
+            # 'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),
+            'reference_filename': row['filename_reference'],
             'imitation_filename': row['filename_imitation'],
-            # 'reference': self.load_audio(os.path.join(self.dataset_dir, 'references', row['filename_reference'])),
+            'reference': reference,
             'imitation': self.load_audio(os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])),
 
         }
@@ -132,11 +139,13 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
             if not os.path.exists(imitation_name):
                 print("Missing: ", imitation_name)
 
-    def load_audio(self, path):
+    def load_audio(self, path, sr=None):
+        if sr is None:
+            sr = self.sample_rate
         if path not in self.cached_files:
             audio, sr = librosa.load(
                 path,
-                sr=self.sample_rate,
+                sr=sr,
                 mono=True,
                 duration=self.duration
             )
@@ -171,7 +180,7 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
             'reference_path': reference_name,
             'reference_filename': row['Items'],
             'imitation_filename': row['Query'],
-            # 'reference': self.load_audio(reference_name),
+            'reference': self.load_audio(reference_name, sr=48000),
             'imitation': self.load_audio(imitation_name),
             'reference_class': row['Class'],
             'imitation_class': row['Class']

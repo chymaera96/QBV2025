@@ -3,12 +3,13 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
 import laion_clap
 import torch
 from evaluate import evaluate_qvim_system
 from torch import nn
 from tqdm import tqdm
+
+import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
 
 
 class CLAP(nn.Module):

@@ -108,12 +108,6 @@ class VimSketch(torch.utils.data.Dataset):
     def load_audio(self, path):
         if path not in self.cached_files:
             audio, sr = librosa.load(path, sr=self.sample_rate, mono=True)
-            # check if it's CLAP
-            if hasattr(self.feature_extractor, "is_afclap"):
-                audio = audio.reshape(1, -1)
-                audio = torch.from_numpy(
-                    int16_to_float32(float32_to_int16(audio))
-                ).float()
             self.cached_files[path] = audio
         return self.cached_files[path]
 

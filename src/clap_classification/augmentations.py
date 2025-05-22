@@ -96,11 +96,16 @@ class FrameLevelCorruption(BaseWaveformTransform):
             if random.random() < self.silence_prob:
                 frame = np.zeros_like(frame)
 
-            corrupted_samples.append(frame)
+            # Only append non-empty frames
+            if len(frame) > 0:
+                corrupted_samples.append(frame)
             i += frame_size
 
+        # Add safety check for empty result
         return (
             np.concatenate(corrupted_samples).astype(np.float32)
-            if corrupted_samples
-            else samples.astype(np.float32)
+            if corrupted_samples and any(len(f) > 0 for f in corrupted_samples)
+            else samples.astype(
+                np.float32
+            )  # Return original if all frames were removed
         )

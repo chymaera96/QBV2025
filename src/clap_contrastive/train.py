@@ -256,14 +256,34 @@ def main(args):
     ).to(device)
 
     criterion = TripletLoss(margin=args.triplet_margin)
-    optimizer = optim.Adam(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+        betas=(0.9, 0.999),
+        eps=1e-8,
     )
 
     scheduler = None
-    if args.use_scheduler:
+    if args.scheduler_type == "cosine":
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=10,  # Restart every 10 epochs
+            T_mult=2,  # Double the restart period each time
+            eta_min=args.learning_rate * 0.01,  # Minimum LR
+            verbose=True,
+        )
+    elif args.scheduler_type == "plateau":
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, "min", patience=args.scheduler_patience, factor=0.5, verbose=True
+            optimizer,
+            "min",
+            patience=args.scheduler_patience,
+            factor=0.5,
+            verbose=True,
+        )
+    elif args.scheduler_type == "step":
+        scheduler = optim.lr_scheduler.StepLR(
+            optimizer, step_size=15, gamma=0.1, verbose=True
         )
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -289,10 +309,12 @@ def main(args):
                 }
             )
 
-        if scheduler and isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
-            scheduler.step(epoch_loss)
-        elif scheduler:
-            scheduler.step()  # For other schedulers like CosineAnnealing
+        # Update scheduler based on type
+        if scheduler:
+            if args.scheduler_type == "plateau":
+                scheduler.step(epoch_loss)
+            elif args.scheduler_type in ["cosine", "step"]:
+                scheduler.step()
 
         if (epoch + 1) % args.eval_every == 0:
             print(f"Epoch {epoch + 1}: Validating...")
@@ -419,10 +441,10 @@ if __name__ == "__main__":
 
     # Training parameters
     parser.add_argument(
-        "--batch_size", type=int, default=64, help="Training batch size"
+        "--batch_size", type=int, default=128, help="Training batch size"
     )
     parser.add_argument(
-        "--learning_rate", type=float, default=1e-4, help="Learning rate for optimizer"
+        "--learning_rate", type=float, default=1e-3, help="Learning rate for optimizer"
     )
     parser.add_argument(
         "--weight_decay", type=float, default=1e-5, help="Weight decay for optimizer"
@@ -487,15 +509,17 @@ if __name__ == "__main__":
         help="Custom name for the W&B run. If None, a name is generated from hyperparams.",
     )
     parser.add_argument(
-        "--use_scheduler",
-        action="store_true",
-        help="Use a learning rate scheduler (ReduceLROnPlateau by default)",
+        "--scheduler_type",
+        type=str,
+        default="cosine",
+        choices=["plateau", "cosine", "step"],
+        help="Type of learning rate scheduler",
     )
     parser.add_argument(
         "--scheduler_patience",
         type=int,
         default=5,
-        help="Patience for ReduceLROnPlateau scheduler (if use_scheduler is True)",
+        help="Patience for ReduceLROnPlateau scheduler",
     )
 
     args = parser.parse_args()

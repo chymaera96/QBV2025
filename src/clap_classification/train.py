@@ -152,7 +152,7 @@ def validate_with_evaluate(mlp_model, clap_feature_extractor, data_path, device)
 def main(args):
     # Initialize wandb with environment variables
     wandb_entity = os.environ.get("WANDB_ENTITY", None)
-    wandb_project = os.environ.get("WANDB_PROJECT", "qbv2025-clap-mlp")
+    wandb_project = os.environ.get("WANDB_PROJECT", "qvim")
     save_path = os.path.join(
         "models",
         f"CF_clap-{args.clap_model_id}_aug-{args.augment}_neg-{args.negative_ratio}.pt",

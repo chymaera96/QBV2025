@@ -187,7 +187,7 @@ def main(args):
 
     train_dataset = VimSketch(
         root_dir=args.data_dir,
-        sample_rate=16000,
+        sample_rate=48000 if args.clap_model_id != "AF" else 16000,
         feature_extractor=feature_extractor,
         negative_ratio=args.negative_ratio,
         seed=args.seed,
@@ -429,9 +429,7 @@ if __name__ == "__main__":
 
     # If run_name is not provided, create one based on model parameters
     if args.use_wandb and args.run_name is None:
-        args.run_name = (
-            f"CF_clap-{args.clap_model_id}_aug-{args.augment}_neg-{args.negative_ratio}"
-        )
+        args.run_name = f"CF_clap-{args.clap_model_id}_aug-{args.augment}_neg-{args.negative_ratio}_dim-{args.hidden_dims}"
 
     # Set random seeds for reproducibility
     torch.manual_seed(args.seed)

@@ -2,6 +2,7 @@ import os
 import random
 
 import librosa
+import numpy as np
 import pandas as pd
 import torch
 
@@ -107,6 +108,12 @@ class VimSketch(torch.utils.data.Dataset):
     def load_audio(self, path):
         if path not in self.cached_files:
             audio, sr = librosa.load(path, sr=self.sample_rate, mono=True)
+            # check if it's CLAP
+            if hasattr(self.feature_extractor, "is_afclap"):
+                audio = audio.reshape(1, -1)
+                audio = torch.from_numpy(
+                    int16_to_float32(float32_to_int16(audio))
+                ).float()
             self.cached_files[path] = audio
         return self.cached_files[path]
 
@@ -116,19 +123,25 @@ class VimSketch(torch.utils.data.Dataset):
     def __getitem__(self, index):
         row = self.all_pairs.iloc[index]
 
-        reference_item = torch.tensor(
-            self.load_audio(
-                os.path.join(self.root_dir, "references", row["filename_reference"])
-            )
-        ).float()
+        # Load audio files
+        reference_audio = self.load_audio(
+            os.path.join(self.root_dir, "references", row["filename_reference"])
+        )
 
-        query_item = torch.tensor(
-            self.load_audio(
-                os.path.join(
-                    self.root_dir, "vocal_imitations", row["filename_imitation"]
-                )
-            )
-        ).float()
+        query_audio = self.load_audio(
+            os.path.join(self.root_dir, "vocal_imitations", row["filename_imitation"])
+        )
+
+        # Convert to tensors properly depending on whether they're already tensors
+        if isinstance(reference_audio, torch.Tensor):
+            reference_item = reference_audio.clone().detach().float()
+        else:
+            reference_item = torch.tensor(reference_audio).float()
+
+        if isinstance(query_audio, torch.Tensor):
+            query_item = query_audio.clone().detach().float()
+        else:
+            query_item = torch.tensor(query_audio).float()
 
         if self.augment and self.augmenter:
             if self.augment == "query" or self.augment == "both":
@@ -147,3 +160,13 @@ class VimSketch(torch.utils.data.Dataset):
             "query_id": row["filename_imitation"],
             "is_match": row["is_match"],
         }
+
+
+# quantization for CLAP
+def int16_to_float32(x):
+    return (x / 32767.0).astype("float32")
+
+
+def float32_to_int16(x):
+    x = np.clip(x, a_min=-1.0, a_max=1.0)
+    return (x * 32767.0).astype("int16")

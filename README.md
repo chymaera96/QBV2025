@@ -35,7 +35,7 @@ project_root_dir/
 
 ### Dataloader
 
-See [src/prepare_s2s_data/datasets_S2S.py]. The dataset class is based on the baseline dataset.
+See [src/prepare_s2s_data/datasets_S2S.py](https://github.com/chymaera96/QBV2025/blob/s2s_data/src/prepare_s2s_data/datasets_S2S.py). The dataset class is based on the baseline dataset.
 
 
 ## Features
@@ -52,9 +52,13 @@ See [src/prepare_s2s_data/datasets_S2S.py]. The dataset class is based on the ba
    🤔 The Chromagram from [librosa.feature.chroma_cqt](https://librosa.org/doc/main/generated/librosa.feature.chroma_cqt.html) shows high energy in silence region. Applying power, decibel, or loudness scaling may help?
 
 ### s2s/descriptions   
-`s2s/description` contains both `reference...json` and `vocal_imitation...json` contain 50 descriptions per audio file, generated in two distinct styles: `reference-style` and `vocal imitation style` (e.g. `A kid is mimicking bird chirps`).
+- `s2s/description` contains both `reference...json` and `vocal_imitation...json` contain 50 descriptions per audio file, generated in two distinct styles:
+    - `reference-style`: e.g. A bird chirps.
+    - `vocal imitation style`: e.g. A kid is mimicking bird chirps.
 
-We use microsoft/Phi-4 for text generation. Phi-4 has 14B parameters, and it boasts comparable performance with LLaMA-3.3 70B!
+- We use microsoft/Phi-4 (14B), which boasts comparable performance with LLaMA-3.3 70B!
+
+<img width="585" alt="Screenshot 2025-05-24 at 15 26 05" src="https://github.com/user-attachments/assets/566e3568-cc9a-4d5d-95f7-8d8acb0facce" />
 
 ## 🛠️ Generate Your Own
 
@@ -72,7 +76,11 @@ python src/prepare_s2s_data/generate_extra_features.py \
     --num_workers 8 \
 ```
 
+
+
 ### Generate Sound Description (.pkl and .json)
+
+<details>
 
 ```shell
 pip install vllm
@@ -98,8 +106,12 @@ Default arguments:
     ... (and more)
 ```
 
+</details>
+
 Its main outputs are like `references_{llm_name}_t{temperature}_{time}.pkl`, `.json`, and `.log`. 
 You may rename the `pkl` file as `references.pkl` (and also for `vocal_imitations.pkl`).
+
+
 
 <details>
 <summary> (very slow) LLaMA 70B Online Setup </summary>
@@ -145,21 +157,27 @@ Phi-4 | vLLM | 20 GB | auto | 50 | 1.5 |
 phi-4-unsloth-bnb-4bit | vLLM | - | auto | 50 | 1.2|
 
 #### Sample Prompt
-```yaml
-[{'role': 'system',
+
+>[{'role': 'system',
   'content': 'You are a creative but grounded assistant. Given a keyword that implies a certain sound, generate up to 50 distinct English expressions that describe how a human might vocally imitate that sound. Do not number the expressions. Separate each expression with a vertical bar (|).You must include both mimicking expressions (such as onomatopoeia) and realistic descriptions of human vocal behavior. The first 10 expressions should be short, about 5 to 7 words. The next 10 can gradually grow longer, up to 12 words. If more natural variations exist beyond 20, continue generating them — up to 50 total. Clearly indicate that the sound is being imitated by a human — such as a man, woman, or child — and optionally include their vocal traits (e.g., pitch, age, tone). Use vivid, expressive language while remaining semantically faithful to the keyword. While animal sounds are the most common, the keyword may also refer to musical instruments (e.g., sitar plucking), environmental sounds (e.g., keyboard typing), or stylized sound effects used in film or animation. In all cases, emphasize how a human would vocally reproduce the essence of the sound.'},
- {'role': 'user',
+
+ >{'role': 'user',
   'content': 'Describe the sound implied by the keyword (as a human vocal imitation): Animal_Wild animals_Bird_Bird vocalization_bird call_bird song_Chirp_tweet.'},
- {'role': 'assistant',
+
+ >{'role': 'assistant',
   'content': "boy mimicking bird with sharp tweets|woman softly chirping like a songbird|man whistles bright finch-like notes|girl imitating forest chirp sounds|gentle tweeting made by young child|woman's lips trill like warblers|man vocalizing dawn chirps with rhythm|child's quick 'tweet-tweet' mimicry|soft mouth-made chirping by adult male|elderly woman whistling sparrow sounds|a young boy imitates cheerful bird song sounds|woman gently reproduces robin-like chirping patterns|deep-voiced man mimics low warbling tweets|a child whistles quick finch calls into the air|teenage girl creates soft bird call impressions|adult male's vocal imitation of forest chirping chorus|older man breathes out layered bird tweet sequences|a young girl mimics high-pitched sparrow chirps with lips|woman’s voice captures the melody of early bird songs|an expressive child recreates full morning bird chorus vocally|elderly man imitates chirps with trembling lips|little boy repeats rapid chirp patterns with breathy squeaks|woman whistles complex songbird rhythms with precision|man gruffly imitates parrot squawk sounds|young girl softly mimics woodland bird flutters|boy hums rising chirp melodies playfully|grandfather tries tweeting like a canary|mother recreates bird songs during bedtime play|teen mimics birds through whistling and tongue clicks|child mimics chirps with sharp inhaled squeaks"},
- {'role': 'user',
+ 
+ >{'role': 'user',
   'content': 'Describe the sound implied by the keyword: dog_barking.'},
- {'role': 'assistant', 'content': ''}]
- ```
+ 
+ >{'role': 'assistant', 'content': ''}]
+
 
 #### Sample Response
-```yaml
-Sample generated description for 12453_240-zipper_opening-everyday.wav: ['Man mimics a zipper with a sharp "zip" sound. Woman produces a smooth "zipping" noise with her lips. Child imitates a zipper with a quick "zip-zip" sequence. Teenager whistles a high-pitched "zip" sound. Man uses his tongue to create a "zipping" effect. Woman clicks her tongue to replicate a zipper\'s motion. Child hums a "zipping" sound with a slight whistle. Man produces a "zip" sound by snapping his fingers. Woman mimics a zipper with a rhythmic "zip-zip" chant. Teenager uses a whistle to create a "zipping" noise. Man creates a "zipping" sound by rubbing his fingers together. Woman imitates a zipper with a continuous "zipping" hum. Child uses a kazoo to mimic the sound of a zipper. Man produces a "zip" sound by clicking his tongue sharply. Woman imitates a zipper with a smooth, continuous "zipping" noise. Teenager whistles a quick "zip-zip" sequence to mimic a zipper. Man uses his lips to create a "zipping" effect with a "zip-zip" rhythm. Woman mimics a zipper with a "zip" sound followed by a "zip-zip" sequence. Child imitates a zipper with a playful "zip-zip-zip" chant. Man creates a "zipping" sound by snapping his fingers in a quick rhythm. Woman uses her tongue to produce a sharp "zip" sound. Teenager hums a "zipping" noise with a slight whistle. Man imitates a zipper with a "zip-zip" sequence using his mouth. Woman creates a "zipping" sound by rubbing her fingers together. Child mimics a zipper with a "zip" sound followed by a "zip-zip" sequence. Man whistles a high-pitched "zip" sound to mimic a zipper. Woman uses a kazoo to create a "zipping" effect. Teenager produces a "zip" sound by clicking his tongue sharply. Man imitates a zipper with a smooth, continuous "zipping" hum. Woman creates a "zipping" sound by snapping her fingers in a quick rhythm. Child uses his lips to produce a "zipping" effect with a "zip-zip" rhythm. Man mimics a zipper with a playful "zip-zip-zip" chant. Woman imitates a zipper with a "zip" sound followed by a "zip-zip-zip" sequence. Teenager uses his tongue to create a sharp "zip" sound. Man whistles a high-pitched "zip" sound with a playful "vroom"']
-```
+
+>Sample generated description for 12453_240-zipper_opening-everyday.wav: 
+
+>['Man mimics a zipper with a sharp "zip" sound. Woman produces a smooth "zipping" noise with her lips. Child imitates a zipper with a quick "zip-zip" sequence. Teenager whistles a high-pitched "zip" sound. Man uses his tongue to create a "zipping" effect. Woman clicks her tongue to replicate a zipper\'s motion. Child hums a "zipping" sound with a slight whistle. Man produces a "zip" sound by snapping his fingers. Woman mimics a zipper with a rhythmic "zip-zip" chant. Teenager uses a whistle to create a "zipping" noise. Man creates a "zipping" sound by rubbing his fingers together. Woman imitates a zipper with a continuous "zipping" hum. Child uses a kazoo to mimic the sound of a zipper. Man produces a "zip" sound by clicking his tongue sharply. Woman imitates a zipper with a smooth, continuous "zipping" noise. Teenager whistles a quick "zip-zip" sequence to mimic a zipper. Man uses his lips to create a "zipping" effect with a "zip-zip" rhythm. Woman mimics a zipper with a "zip" sound followed by a "zip-zip" sequence. Child imitates a zipper with a playful "zip-zip-zip" chant. Man creates a "zipping" sound by snapping his fingers in a quick rhythm. Woman uses her tongue to produce a sharp "zip" sound. Teenager hums a "zipping" noise with a slight whistle. Man imitates a zipper with a "zip-zip" sequence using his mouth. Woman creates a "zipping" sound by rubbing her fingers together. Child mimics a zipper with a "zip" sound followed by a "zip-zip" sequence. Man whistles a high-pitched "zip" sound to mimic a zipper. Woman uses a kazoo to create a "zipping" effect. Teenager produces a "zip" sound by clicking his tongue sharply. Man imitates a zipper with a smooth, continuous "zipping" hum. Woman creates a "zipping" sound by snapping her fingers in a quick rhythm. Child uses his lips to produce a "zipping" effect with a "zip-zip" rhythm. Man mimics a zipper with a playful "zip-zip-zip" chant. Woman imitates a zipper with a "zip" sound followed by a "zip-zip-zip" sequence. Teenager uses his tongue to create a sharp "zip" sound. Man whistles a high-pitched "zip" sound with a playful "vroom"']
+
 
 

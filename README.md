@@ -42,21 +42,22 @@ See [src/prepare_s2s_data/datasets_S2S.py](https://github.com/chymaera96/QBV2025
 ### s2s/extra_feat
 `s2s/extra_feat/[...]/` contains `.npy` files that match the source audio file names. Each `.npy` file stores an `(16, ?)` array sampled every 10 ms. 
 
-    |d  | feature| 
-    |---|---|
-    |0  |loudness|
-    |1  |spectral centroid|
-    |2  |pitch (CREPE; periodicity>0.1)|
-    |3  |pitch (YIN) |
-    |4-15 | CQT-Chromagram |
-   🤔 The Chromagram from [librosa.feature.chroma_cqt](https://librosa.org/doc/main/generated/librosa.feature.chroma_cqt.html) shows high energy in silence region. Applying power, decibel, or loudness scaling may help?
+|d  | feature| 
+|---|---|
+|0  |loudness|
+|1  |spectral centroid|
+|2  |pitch (CREPE; periodicity>0.1)|
+|3  |pitch (YIN) |
+|4-15 | CQT-Chromagram |
+
+   🤔 [librosa.feature.chroma_cqt](https://librosa.org/doc/main/generated/librosa.feature.chroma_cqt.html) shows high energy in silence region. Applying loudness scaling may help?
 
 ### s2s/descriptions   
 - `s2s/description` contains both `reference...json` and `vocal_imitation...json` contain 50 descriptions per audio file, generated in two distinct styles:
     - `reference-style`: e.g. A bird chirps.
     - `vocal imitation style`: e.g. A kid is mimicking bird chirps.
 
-- We use microsoft/Phi-4 (14B), which boasts comparable performance with LLaMA-3.3 70B!
+- We use [microsoft/Phi-4](https://huggingface.co/microsoft/phi-4) (14B), which boasts comparable performance with LLaMA-3.3 70B!
 
 <img width="585" alt="Screenshot 2025-05-24 at 15 26 05" src="https://github.com/user-attachments/assets/566e3568-cc9a-4d5d-95f7-8d8acb0facce" />
 

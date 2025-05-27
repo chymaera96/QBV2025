@@ -17,11 +17,11 @@ model = get_model(
 head = nn.Linear(960, 1024)
 
 # Only use the convolutional feature extractor
-features_module = model.features
+# features_module = model.features
 
 # Run input through feature extractor
 with torch.no_grad():
-    out = features_module(x)
+    _, out = model(x)
 
 print("Feature shape:", out.shape)
 # Run features through MLP head

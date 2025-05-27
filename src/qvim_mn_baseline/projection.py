@@ -41,15 +41,6 @@ class MobileNetWithProjection(nn.Module):
             head_type="mlp",
             width_mult=NAME_TO_WIDTH(pretrained_name),
         )
-        # for param in self.backbone.parameters():
-        #     param.requires_grad = False
-
-        # Grab the MLP's penultimate output (embedding size is 960 for width_mult=1.0)
-        # self.projection = nn.Sequential(
-        #     nn.Linear(960, 1024),
-        #     nn.ReLU(),
-        #     nn.Linear(1024, projection_dim)
-        # )
         self.head = nn.Linear(960, 1024)
 
     def forward(self, x):

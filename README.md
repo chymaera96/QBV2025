@@ -50,3 +50,16 @@ CLAP 0-3 use the representations from the pretrained checkpoints, without furthe
 | CLAP AF      | 0.1127            | 0.4743                |
 
 ### Frozen CLAP retrieval with other layers
+
+Using CLAP model 1.
+
+| Model Name   | MRR (exact match) | NDCG (category match) |
+|--------------|-------------------|-----------------------|
+| random       | 0.0444            | ~0.337                |
+| 2DFT         | 0.1262            | 0.4793                |
+| MN baseline  | 0.2726            | 0.6463                |
+| Default      | 0.1316            | 0.4906                |
+|HTSAT output | 0.1250 | 0.4799 | 
+|HTSAT Stage 3 Block 0 | 0.1063 |
+|HTSAT Stage 3 Block 1 | 0.0952 |
+|HTSAT Stage 1 Block 0 | 0.0883 |

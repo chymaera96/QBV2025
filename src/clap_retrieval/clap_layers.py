@@ -232,73 +232,17 @@ class CLAP(nn.Module):
         return results
 
 
-def update_readme_with_results(all_results, readme_path="README.md"):
-    start_marker = "<!--LAYER_RESULTS_TABLE_START-->"
-    end_marker = "<!--LAYER_RESULTS_TABLE_END-->"
-
-    table_content = "| Layer Name / Description             | MRR (exact match) |\n"
-    table_content += "|--------------------------------------|-------------------|\n"
-
-    # Add top 3 and the default CLAP if not in top 3
-    # Filter out errors (mrr < 0) before sorting for top 3
-    valid_results = [r for r in all_results if r["mrr"] >= 0]
-    top_3 = sorted(valid_results, key=lambda x: x["mrr"], reverse=True)[:3]
-
-    default_clap_result = next(
-        (r for r in all_results if r["layer_name"] == "Default CLAP Final Embedding"),
-        None,
-    )
-
-    display_results_dict = {}  # Use dict to ensure unique layer names in table
-
-    for res in top_3:
-        display_results_dict[res["layer_name"]] = res
-
-    if (
-        default_clap_result
-        and default_clap_result["layer_name"] not in display_results_dict
-    ):
-        display_results_dict[default_clap_result["layer_name"]] = default_clap_result
-
-    # Sort again by MRR for final display order in the table
-    sorted_display_results = sorted(
-        display_results_dict.values(), key=lambda x: x["mrr"], reverse=True
-    )
-
-    for res in sorted_display_results:
-        # Escape pipe characters in layer names for Markdown table
-        safe_layer_name = res["description"].replace("|", "\\|")
-        table_content += f"| CLAP 1 ({safe_layer_name}) | {res['mrr']:.4f} |\n"
-
-    try:
-        with open(readme_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        start_index = content.find(start_marker)
-        end_index = content.find(end_marker)
-
-        if start_index != -1 and end_index != -1 and start_index < end_index:
-            pre_content = content[: start_index + len(start_marker)]
-            post_content = content[end_index:]
-            new_content = pre_content + "\n" + table_content + "\n" + post_content
-
-            with open(readme_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
-            print(f"\n{readme_path} updated successfully with layer results.")
-        else:
-            print(
-                f"\nCould not find markers {start_marker} and {end_marker} in {readme_path}. Table not updated."
-            )
-    except Exception as e:
-        print(f"\nError updating {readme_path}: {e}")
-
-
 if __name__ == "__main__":
     # For CLAP model_id=1, the audio encoder is HTSAT-tiny with depths=[2, 2, 6, 2]
     htsat_depths = [2, 2, 6, 2]
     num_stages = len(htsat_depths)
 
     layers_to_evaluate = []
+
+    # 4. Output of the final normalization layer in HTSAT backbone
+    layers_to_evaluate.append(
+        {"name": "norm", "description": "HTSAT Final Norm Output"}
+    )
 
     # 0. Default CLAP (final embedding)
     layers_to_evaluate.append(
@@ -325,11 +269,6 @@ if __name__ == "__main__":
         layers_to_evaluate.append(
             {"name": f"layers.{i}", "description": f"HTSAT Stage {i} Output"}
         )
-
-    # 4. Output of the final normalization layer in HTSAT backbone
-    layers_to_evaluate.append(
-        {"name": "norm", "description": "HTSAT Final Norm Output"}
-    )
 
     evaluation_results = []
 
@@ -412,6 +351,3 @@ if __name__ == "__main__":
         print(
             f"Layer: {res['description']} (Name: {res['layer_name']}) - MRR: {res['mrr']:.4f}"
         )
-
-    # Update README.md
-    update_readme_with_results(evaluation_results)

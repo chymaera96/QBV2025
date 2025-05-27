@@ -102,30 +102,71 @@ class VimSketch(torch.utils.data.Dataset):
         positive_ref_id = query_info["positive_ref_id"]
         positive_audio_path = self.references[positive_ref_id]
 
-        # Load and process audio
+        # Sample a negative reference
+        possible_negative_ids = [
+            rid for rid in self.all_reference_ids if rid != positive_ref_id
+        ]
+
+        if not possible_negative_ids:
+            if (
+                len(self.all_reference_ids) == 1
+                and self.all_reference_ids[0] == positive_ref_id
+            ):
+                # Only one reference ID exists and it's the positive one.
+                # This is an edge case; using the positive as negative. Augmentation might differentiate them.
+                negative_ref_id = positive_ref_id
+                # print(f"Warning: Only one reference ID ({positive_ref_id}) available. Using it as negative for query {query_info['query_id']}.")
+            elif not self.all_reference_ids:
+                raise ValueError(
+                    "No reference IDs available to select a negative sample."
+                )
+            else:
+                # Should not happen if all_reference_ids is populated and has >1 distinct ids
+                # Fallback to any other ID if possible_negative_ids is empty for unexpected reasons
+                temp_neg_ids = list(self.all_reference_ids)
+                if positive_ref_id in temp_neg_ids:  # Should always be true
+                    temp_neg_ids.remove(positive_ref_id)
+                if not temp_neg_ids:  # Still no options, duplicate positive
+                    negative_ref_id = positive_ref_id
+                else:
+                    negative_ref_id = random.choice(temp_neg_ids)
+
+        else:
+            negative_ref_id = random.choice(possible_negative_ids)
+
+        negative_audio_path = self.references[negative_ref_id]
+
+        # Load audio
         anchor_audio_np = self.load_audio(anchor_audio_path)
         positive_audio_np = self.load_audio(positive_audio_path)
+        negative_audio_np = self.load_audio(negative_audio_path)
 
-        # Apply augmentations if needed
+        # Augmentation (operates on and returns numpy arrays)
         if self.augmenter:
             if self.augment_mode == "query" or self.augment_mode == "both":
                 anchor_audio_np = self.augmenter.train_transform(anchor_audio_np)
             if self.augment_mode == "reference" or self.augment_mode == "both":
                 positive_audio_np = self.augmenter.train_transform(positive_audio_np)
+                negative_audio_np = self.augmenter.train_transform(negative_audio_np)
 
-        # Feature extraction
+        # Feature extraction (CLAPFeatureExtractor handles numpy/tensor input)
         if self.feature_extractor:
             anchor_feat = self.feature_extractor(anchor_audio_np)
             positive_feat = self.feature_extractor(positive_audio_np)
+            negative_feat = self.feature_extractor(negative_audio_np)
         else:
+            # If no feature extractor, convert to tensors (as per original logic)
             anchor_feat = torch.tensor(anchor_audio_np).float()
             positive_feat = torch.tensor(positive_audio_np).float()
+            negative_feat = torch.tensor(negative_audio_np).float()
 
         return {
-            "query_features": anchor_feat,  # Changed key name to match training loop
-            "reference_features": positive_feat,  # Changed key name to match training loop
+            "anchor_features": anchor_feat,
+            "positive_features": positive_feat,
+            "negative_features": negative_feat,
             "query_id": query_info["query_id"],
-            "reference_id": positive_ref_id,  # Changed key name to match training loop
+            "positive_ref_id": positive_ref_id,
+            "negative_ref_id": negative_ref_id,
         }
 
 

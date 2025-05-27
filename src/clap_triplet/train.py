@@ -33,35 +33,16 @@ class ProjectionMLP(nn.Module):
         return self.mlp(x)
 
 
-class ContrastiveLoss(nn.Module):
-    def __init__(self, temperature=0.1):  # Increased temperature
-        super(ContrastiveLoss, self).__init__()
-        self.temperature = temperature
-        self.eps = 1e-8
+class TripletLoss(nn.Module):
+    def __init__(self, margin=1.0):
+        super(TripletLoss, self).__init__()
+        self.margin = margin
 
-    def forward(self, query_embeddings, reference_embeddings, query_ids, reference_ids):
-        # Normalize embeddings
-        query_embeddings = torch.nn.functional.normalize(
-            query_embeddings, dim=1, eps=self.eps
-        )
-        reference_embeddings = torch.nn.functional.normalize(
-            reference_embeddings, dim=1, eps=self.eps
-        )
-
-        # Compute similarity matrix: [batch_size, batch_size]
-        similarity_matrix = (
-            torch.matmul(query_embeddings, reference_embeddings.T) / self.temperature
-        )
-
-        # In your dataset, each query at index i has its positive reference at index i
-        # So the diagonal represents positive pairs
-        batch_size = similarity_matrix.size(0)
-        labels = torch.arange(batch_size, device=similarity_matrix.device)
-
-        # InfoNCE loss using cross-entropy
-        loss = torch.nn.functional.cross_entropy(similarity_matrix, labels)
-
-        return loss
+    def forward(self, anchor, positive, negative):
+        distance_positive = (anchor - positive).pow(2).sum(1)  # L2
+        distance_negative = (anchor - negative).pow(2).sum(1)
+        losses = torch.relu(distance_positive - distance_negative + self.margin)
+        return losses.mean()
 
 
 def train_epoch(
@@ -72,60 +53,35 @@ def train_epoch(
 
     progress_bar = tqdm(dataloader, desc=f"Epoch {epoch + 1} Training")
     for batch_idx, batch in enumerate(progress_bar):
-        query_features = batch["query_features"].to(device)
-        reference_features = batch["reference_features"].to(device)
-        query_ids = batch["query_id"]
-        reference_ids = batch["reference_id"]
-
-        # Check for NaN in inputs
-        if torch.isnan(query_features).any() or torch.isnan(reference_features).any():
-            print(f"NaN detected in input features at batch {batch_idx}")
-            continue
+        anchor_features = batch["anchor_features"].to(device)
+        positive_features = batch["positive_features"].to(device)
+        negative_features = batch["negative_features"].to(device)
 
         optimizer.zero_grad()
 
         # Get embeddings from the projection MLP
-        query_emb = model(query_features)
-        reference_emb = model(reference_features)
+        anchor_emb = model(anchor_features)
+        positive_emb = model(positive_features)
+        negative_emb = model(negative_features)
 
-        # Check for NaN in embeddings
-        if torch.isnan(query_emb).any() or torch.isnan(reference_emb).any():
-            print(f"NaN detected in embeddings at batch {batch_idx}")
-            continue
-
-        # Simple InfoNCE: each query's positive is the reference at the same index
-        query_emb = torch.nn.functional.normalize(query_emb, dim=1)
-        reference_emb = torch.nn.functional.normalize(reference_emb, dim=1)
-
-        # Compute similarity matrix
-        similarity_matrix = (
-            torch.matmul(query_emb, reference_emb.T) / 0.1
-        )  # temperature
-
-        # Targets are diagonal (each query matches its corresponding reference)
-        batch_size = similarity_matrix.size(0)
-        targets = torch.arange(batch_size, device=device)
-
-        loss = torch.nn.functional.cross_entropy(similarity_matrix, targets)
-
-        if torch.isnan(loss):
-            print(f"NaN loss at batch {batch_idx}")
-            continue
-
+        loss = criterion(anchor_emb, positive_emb, negative_emb)
         loss.backward()
-
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
         optimizer.step()
 
-        running_loss += loss.item() * query_features.size(0)
+        running_loss += loss.item() * anchor_features.size(0)
         progress_bar.set_postfix(loss=loss.item())
 
+        # Log per-batch metrics to wandb (matching classification format)
         if use_wandb:
-            wandb.log({"batch/loss": loss.item()})
+            wandb.log(
+                {
+                    "batch/loss": loss.item(),
+                }
+            )
 
     epoch_loss = running_loss / len(dataloader.dataset)
+    print(f"Epoch {epoch + 1} Training Loss: {epoch_loss:.4f}")
+
     return epoch_loss
 
 
@@ -221,7 +177,7 @@ def main(args):
 
     # Create a more descriptive save path for the contrastive model
     model_name_parts = [
-        "SC",
+        "TP",
         f"clap-{args.clap_model_id}",
         f"aug-{args.augment}",
         f"proj-{args.projection_output_dim}",
@@ -299,7 +255,7 @@ def main(args):
         dropout_rate=args.dropout_rate,
     ).to(device)
 
-    criterion = ContrastiveLoss(temperature=args.temperature)
+    criterion = TripletLoss(margin=args.triplet_margin)
     optimizer = optim.AdamW(
         model.parameters(),
         lr=args.learning_rate,
@@ -500,10 +456,7 @@ if __name__ == "__main__":
         "--eval_every", type=int, default=1, help="Evaluate every N epochs"
     )
     parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.07,
-        help="Temperature for contrastive loss",
+        "--triplet_margin", type=float, default=0.2, help="Margin for Triplet Loss"
     )
     parser.add_argument(
         "--patience", type=int, default=10, help="Patience for early stopping"

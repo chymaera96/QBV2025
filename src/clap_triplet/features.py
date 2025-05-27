@@ -62,16 +62,19 @@ class CLAPFeatureExtractor:
             Feature tensor
         """
         with torch.no_grad():
-            if isinstance(audio_tensor, np.ndarray):
-                audio_tensor = torch.from_numpy(audio_tensor).float().to(self.device)
+            if isinstance(audio_tensor, torch.Tensor):
+                audio_array = audio_tensor.cpu().numpy()
             else:
-                audio_tensor = audio_tensor.float().to(self.device)
+                audio_array = audio_tensor
 
-            if len(audio_tensor.shape) == 1:
-                audio_tensor = audio_tensor.reshape(1, -1)
+            if len(audio_array.shape) == 1:
+                audio_array = audio_array.reshape(1, -1)
 
             # Apply quantization
-            audio_tensor = int16_to_float32(float32_to_int16(audio_tensor))
+            audio_array = int16_to_float32(float32_to_int16(audio_array))
+
+            # Convert back to tensor
+            audio_tensor = torch.from_numpy(audio_array).float().to(self.device)
 
             # Extract features
             if self.is_afclap:
@@ -85,4 +88,4 @@ class CLAPFeatureExtractor:
                     x=audio_tensor, use_tensor=True
                 )
 
-            return features.squeeze(0)
+            return features.squeeze(0).cpu()

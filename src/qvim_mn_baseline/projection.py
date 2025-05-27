@@ -16,11 +16,13 @@ class CLAPWithProjection(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
-        self.projection = nn.Sequential(
-            nn.Linear(512, hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(hidden_dim, projection_dim)
-        )
+        # self.projection = nn.Sequential(
+        #     nn.Linear(512, hidden_dim), 
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, projection_dim)
+        # )
+
+        self.head = nn.Linear(512, hidden_dim)
 
     def forward(self, x):
         x_list = [x[i] for i in range(x.shape[0])]
@@ -28,7 +30,7 @@ class CLAPWithProjection(nn.Module):
             x_list = [x[i].to("cpu") for i in range(x.size(0))]
             features = self.model.get_audio_embedding_from_data(x_list, use_tensor=True)
         
-        projected = self.projection(features)
+        projected = self.head(features)
         return projected
 
 class MobileNetWithProjection(nn.Module):
@@ -43,12 +45,27 @@ class MobileNetWithProjection(nn.Module):
         #     param.requires_grad = False
 
         # Grab the MLP's penultimate output (embedding size is 960 for width_mult=1.0)
-        self.projection = nn.Sequential(
-            nn.Linear(960, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, projection_dim)
-        )
+        # self.projection = nn.Sequential(
+        #     nn.Linear(960, 1024),
+        #     nn.ReLU(),
+        #     nn.Linear(1024, projection_dim)
+        # )
+        self.head = nn.Linear(960, 1024)
 
     def forward(self, x):
         _, features = self.backbone(x)  # returns (logits, features)
-        return self.projection(features)
+        return self.head(features)
+
+class SharedProjectionEncoder(nn.Module):
+    def __init__(self, input_dim=1024, hidden_dim=1024, output_dim=512):
+        super().__init__()
+        self.projection = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, x1, x2):
+        z1 = self.projection(x1)
+        z2 = self.projection(x2)
+        return z1, z2

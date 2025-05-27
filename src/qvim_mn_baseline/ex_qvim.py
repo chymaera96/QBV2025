@@ -6,6 +6,7 @@ import copy
 from copy import deepcopy
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
 import pytorch_lightning as pl
@@ -18,7 +19,7 @@ from wandb import Settings
 from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.projection import CLAPWithProjection, MobileNetWithProjection
+from qvim_mn_baseline.projection import CLAPWithProjection, MobileNetWithProjection, SharedProjectionEncoder
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
 
 class QVIMModule(pl.LightningModule):
@@ -44,8 +45,9 @@ class QVIMModule(pl.LightningModule):
             fmax_aug_range=config.fmax_aug_range
         )
 
-        self.imitation_encoder = MobileNetWithProjection(pretrained_name=None)
+        self.imitation_encoder = MobileNetWithProjection()
         self.reference_encoder = CLAPWithProjection()
+        self.shared_projector = SharedProjectionEncoder()
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
@@ -53,30 +55,30 @@ class QVIMModule(pl.LightningModule):
         self.validation_output = []
 
     def forward(self, queries, items):
-        return self.forward_imitation(queries), self.forward_reference(items)
+        y_imit = self.forward_imitation(queries)
+        y_ref = self.forward_reference(items)
+        z_imit, z_ref = self.shared_projector(y_imit, y_ref)
+        return F.normalize(z_imit, dim=1), F.normalize(z_ref, dim=1)
 
     def forward_imitation(self, imitations):
         with torch.no_grad():
             imitations = self.mel(imitations).unsqueeze(1)
         y_imitation = self.imitation_encoder(imitations)
-        y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
+        # y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
         return y_imitation
 
     def forward_reference(self, items):
         y_reference = self.reference_encoder(items)
-        return torch.nn.functional.normalize(y_reference, dim=1)
+        # return torch.nn.functional.normalize(y_reference, dim=1)
+        return y_reference
 
     def training_step(self, batch, batch_idx):
         self.mel.train()
         self.lr_scheduler_step(batch_idx)
 
-        # # assert device and dtype of reference
-        # assert batch['imitation'].device == 'cuda:0'
-        # assert batch['imitation'].dtype == any([torch.float16, torch.bfloat16, torch.float32])
-        y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference']) 
+        z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
 
-        C = torch.matmul(y_imitation, y_reference.T)
+        C = torch.matmul(z_imit, z_ref.T) 
         C = C / torch.abs(self.tau)
 
         C_text = torch.log_softmax(C, dim=1)
@@ -94,10 +96,11 @@ class QVIMModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         self.mel.eval()
-        y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference']) 
+        # y_imitation = self.forward_imitation(batch['imitation'])
+        # y_reference = self.forward_reference(batch['reference']) 
+        z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
 
-        C = torch.matmul(y_imitation, y_reference.T)
+        C = torch.matmul(z_imit, z_ref.T)
         C = C / torch.abs(self.tau)
 
         C_text = torch.log_softmax(C, dim=1)
@@ -114,8 +117,8 @@ class QVIMModule(pl.LightningModule):
 
         self.validation_output.extend([
             {
-                'imitation': copy.deepcopy(y_imitation.detach().cpu().numpy()),
-                'reference': copy.deepcopy(y_reference.detach().cpu().numpy()),
+                'imitation': copy.deepcopy(z_imit.detach().cpu().numpy()),
+                'reference': copy.deepcopy(z_ref.detach().cpu().numpy()),
                 'imitation_filename': batch['imitation_filename'],
                 'reference_filename': batch['reference_filename'],
                 'imitation_class': batch['imitation_class'],
@@ -334,7 +337,7 @@ if __name__ == '__main__':
                     help="Fraction of total epochs for warmup (e.g., default = 0.1 = 10%)")
     parser.add_argument('--rampdown_percent', type=float, default=0.8, # modified to use percent
                     help="Fraction of total epochs for cosine rampdown (e.g., default = 0.8 = 80%)")
-    parser.add_argument('--initial_tau', type=float, default=0.07,
+    parser.add_argument('--initial_tau', type=float, default=0.1,
                         help="Temperature parameter for the loss function.")
     parser.add_argument('--tau_trainable', default=False, action='store_true',
                         help="make tau trainable or not.")

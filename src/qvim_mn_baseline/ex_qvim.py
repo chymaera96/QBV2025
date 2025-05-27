@@ -6,12 +6,12 @@ import copy
 from copy import deepcopy
 import pandas as pd
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.strategies import DDPStrategy
-
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from wandb import Settings
@@ -19,7 +19,7 @@ from wandb import Settings
 from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.projection import CLAPWithProjection, MobileNetWithProjection, SharedProjectionEncoder
+from qvim_mn_baseline.mn.model import get_model
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
 
 class QVIMModule(pl.LightningModule):
@@ -45,62 +45,100 @@ class QVIMModule(pl.LightningModule):
             fmax_aug_range=config.fmax_aug_range
         )
 
-        self.imitation_encoder = MobileNetWithProjection()
-        self.reference_encoder = CLAPWithProjection()
-        self.shared_projector = SharedProjectionEncoder()
+        self.mask_ratio = config.mask_ratio
+
+        def build_encoder():
+            base = get_model(pretrained_name="mn10_as", head_type="mlp", width_mult=1.0)
+            projector = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(start_dim=1),
+                nn.Linear(960, config.projection_dim)
+            )
+            return nn.Sequential(base.features, projector)
+
+        self.context_encoder = build_encoder()
+
+        self.target_encoder = deepcopy(self.context_encoder)  # Momentum encoder
+        self.predictor = nn.Sequential(
+            nn.Conv2d(960, 960, 1),
+            nn.ReLU(),
+            nn.Conv2d(960, 960, 1)
+)
+        
+        self.global_projector = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(start_dim=1),
+            nn.Linear(960, config.projection_dim),
+        )
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
 
         self.validation_output = []
 
-    def forward(self, queries, items):
-        y_imit = self.forward_imitation(queries)
-        y_ref = self.forward_reference(items)
-        z_imit, z_ref = self.shared_projector(y_imit, y_ref)
-        return F.normalize(z_imit, dim=1), F.normalize(z_ref, dim=1)
+    @torch.no_grad()
+    def momentum_update(self, m=0.999):
+        for p_q, p_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
+            p_k.data = m * p_k.data + (1. - m) * p_q.data
 
-    def forward_imitation(self, imitations):
+    def mask_features(self, f_map):
+        B, C, F, T = f_map.shape
+        num_patches = F * T
+        num_mask = int(self.mask_ratio * num_patches)
+
+        mask = torch.ones(B, F, T, device=f_map.device)
+        for i in range(B):
+            idx = torch.randperm(num_patches)[:num_mask]
+            f_idx = idx // T
+            t_idx = idx % T
+            mask[i, f_idx, t_idx] = 0
+
+        return f_map * mask.unsqueeze(1), mask
+
+    def forward(self, x):
+        x = self.mel(x).unsqueeze(1)
         with torch.no_grad():
-            imitations = self.mel(imitations).unsqueeze(1)
-        y_imitation = self.imitation_encoder(imitations)
-        # y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
-        return y_imitation
+            target_f = self.target_encoder(x).detach()
 
-    def forward_reference(self, items):
-        y_reference = self.reference_encoder(items)
-        # return torch.nn.functional.normalize(y_reference, dim=1)
-        return y_reference
+        context_f = self.context_encoder[0](x)
+        masked_context_f, mask = self.mask_features(context_f)
+        context_projected = self.context_encoder[1](masked_context_f)
+
+        predicted_f = self.predictor(context_projected)
+
+        return predicted_f, target_f, mask
+
+    def forward_imitation(self, x):
+        with torch.no_grad():
+            x = self.mel(x).unsqueeze(1)
+            z = self.context_encoder(x)
+        return F.normalize(z, dim=1)
+
+    def forward_reference(self, x):
+        with torch.no_grad():
+            x = self.mel(x).unsqueeze(1)
+            z = self.context_encoder(x)
+        return F.normalize(z, dim=1)
 
     def training_step(self, batch, batch_idx):
-        self.mel.train()
+        self.mel.eval()
         self.lr_scheduler_step(batch_idx)
+        self.momentum_update()
 
-        z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
+        x = batch['imitation']
+        predicted_f, target_f, mask = self.forward(x)
 
-        C = torch.matmul(z_imit, z_ref.T) 
-        C = C / torch.abs(self.tau)
-
-        C_text = torch.log_softmax(C, dim=1)
-
-        paths = np.array([hash(p) for i, p in enumerate(batch['imitation_filename'])])
-        I = torch.tensor(paths[None, :] == paths[:, None])
-
-
-        loss = - C_text[torch.where(I)].mean()
-
-        self.log('train/loss', loss, on_step=True, on_epoch=True, logger=True)
-        self.log('train/tau', self.tau, on_step=True, on_epoch=True, logger=True)
-
+        loss = F.mse_loss(predicted_f[mask == 0], target_f[mask == 0])
+        self.log('train/loss', loss, on_step=True, on_epoch=True)
         return loss
+
 
     def validation_step(self, batch, batch_idx):
         self.mel.eval()
-        # y_imitation = self.forward_imitation(batch['imitation'])
-        # y_reference = self.forward_reference(batch['reference']) 
-        z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
+        y_imit = self.forward_imitation(batch['imitation'])
+        y_ref = self.forward_reference(batch['reference'])
 
-        C = torch.matmul(z_imit, z_ref.T)
+        C = torch.matmul(y_imit, y_ref.T)
         C = C / torch.abs(self.tau)
 
         C_text = torch.log_softmax(C, dim=1)
@@ -117,8 +155,8 @@ class QVIMModule(pl.LightningModule):
 
         self.validation_output.extend([
             {
-                'imitation': copy.deepcopy(z_imit.detach().cpu().numpy()),
-                'reference': copy.deepcopy(z_ref.detach().cpu().numpy()),
+                'imitation': copy.deepcopy(y_imit.detach().cpu().numpy()),
+                'reference': copy.deepcopy(y_ref.detach().cpu().numpy()),
                 'imitation_filename': batch['imitation_filename'],
                 'reference_filename': batch['reference_filename'],
                 'imitation_class': batch['imitation_class'],
@@ -315,6 +353,8 @@ if __name__ == '__main__':
     # Encoder architecture
     parser.add_argument('--pretrained_name', type=str, default="mn10_as",
                         help="Pretrained model name for transfer learning.")
+    parser.add_argument('--projection_dim', type=int, default=512,
+                        help="Dimension of the projection space for the model.")
 
     # Training
     parser.add_argument('--random_seed', type=int, default=None,
@@ -347,6 +387,8 @@ if __name__ == '__main__':
                         help="Enable synchronized batch normalization across GPUs. Default is False.")
     parser.add_argument('--acc_grad', type=int, default=1,
                         help="Accumulate gradient batches, default=1")
+    parser.add_argument('--mask_ratio', type=float, default=0.3,
+                        help="Mask ratio for the masked feature prediction task. Default is 0.3.")
 
     # Preprocessing
     parser.add_argument('--duration', type=float, default=10.0,

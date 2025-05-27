@@ -147,7 +147,8 @@ class QVIMModule(pl.LightningModule):
         contrastive_loss = -C_text[torch.where(I)].mean()
 
         # === Combine losses
-        total_loss = jepa_loss + self.config.contrastive_weight * contrastive_loss
+        r = self.config.loss_ratio
+        total_loss = r * jepa_loss + (1 - r) * contrastive_loss
 
         self.log_dict({
             "train/total_loss": total_loss,
@@ -381,7 +382,7 @@ if __name__ == '__main__':
                         help="Pretrained model name for transfer learning.")
     parser.add_argument('--projection_dim', type=int, default=512,
                         help="Dimension of the projection space for the model.")
-    parser.add_argument("--contrastive_weight", type=float, default=1.0)
+    parser.add_argument("--loss_ratio", type=float, default=0.5)
 
 
     # Training
@@ -415,7 +416,7 @@ if __name__ == '__main__':
                         help="Enable synchronized batch normalization across GPUs. Default is False.")
     parser.add_argument('--acc_grad', type=int, default=1,
                         help="Accumulate gradient batches, default=1")
-    parser.add_argument('--mask_ratio', type=float, default=0.3,
+    parser.add_argument('--mask_ratio', type=float, default=0.6,
                         help="Mask ratio for the masked feature prediction task. Default is 0.3.")
 
     # Preprocessing

@@ -94,14 +94,12 @@ class QVIMModule(pl.LightningModule):
 
         with torch.no_grad():
             target_f = self.target_encoder[0](x)                     # [B, 960, 4, 32]
-            target_projected = self.target_encoder[1](target_f).detach()  # [B, proj_dim]
 
         context_f = self.context_encoder[0](x)                       # [B, 960, 4, 32]
         masked_f, mask = self.mask_features(context_f)                            
         predicted_f = self.predictor(masked_f)                      # [B, 960, 4, 32]
-        projected = self.context_encoder[1](predicted_f)            # [B, proj_dim]
 
-        return projected, target_projected, mask
+        return predicted_f, target_f, masked_f, mask
 
     def forward_imitation(self, x):
         with torch.no_grad():
@@ -116,16 +114,46 @@ class QVIMModule(pl.LightningModule):
         return F.normalize(z, dim=1)
 
     def training_step(self, batch, batch_idx):
-        self.mel.eval()
+        self.mel.train()
         self.lr_scheduler_step(batch_idx)
         self.momentum_update()
 
-        x = batch['imitation']
-        predicted_f, target_f, mask = self.forward(x)
-        mask = mask.unsqueeze(1)  # [B, 1, 4, 32]
-        loss = F.mse_loss(predicted_f * mask, target_f * mask)
-        self.log('train/loss', loss, on_step=True, on_epoch=True)
-        return loss
+        x_imit = self.mel(batch["imitation"]).unsqueeze(1)
+        x_ref = self.mel(batch["reference"]).unsqueeze(1)
+
+        # === JEPA forward (feature maps)
+        context_map = self.context_encoder[0](x_imit)               # [B, 960, H, W]
+        target_map = self.target_encoder[0](x_ref).detach()         # same shape
+        masked_map, mask = self.mask_features(context_map)          # mask: [B, H, W]
+        predicted_map = self.predictor(masked_map)                  # same shape
+
+        # === JEPA loss
+        mask = mask.unsqueeze(1)                                    # [B, 1, H, W]
+        jepa_loss = F.mse_loss(predicted_map * mask, target_map * mask)
+
+        # === Contrastive loss (pooled + projected)
+        z_imit = F.normalize(self.context_encoder[1](context_map), dim=1)  # [B, 512]
+        z_ref = F.normalize(self.context_encoder[1](target_map), dim=1)    # [B, 512]
+
+        C = torch.matmul(z_imit, z_ref.T) / torch.abs(self.tau)
+        C_text = torch.log_softmax(C, dim=1)
+
+        paths = np.array([hash(p) for p in batch['imitation_filename']])
+        I = torch.tensor(paths[None, :] == paths[:, None], device=z_imit.device)
+
+        contrastive_loss = -C_text[torch.where(I)].mean()
+
+        # === Combine losses
+        total_loss = jepa_loss + self.config.contrastive_weight * contrastive_loss
+
+        self.log_dict({
+            "train/total_loss": total_loss,
+            "train/jepa_loss": jepa_loss,
+            "train/contrastive_loss": contrastive_loss,
+            "train/tau": self.tau,
+        }, on_step=True, on_epoch=True, logger=True)
+
+        return total_loss
 
 
     def validation_step(self, batch, batch_idx):
@@ -350,6 +378,8 @@ if __name__ == '__main__':
                         help="Pretrained model name for transfer learning.")
     parser.add_argument('--projection_dim', type=int, default=512,
                         help="Dimension of the projection space for the model.")
+    parser.add_argument("--contrastive_weight", type=float, default=1.0)
+
 
     # Training
     parser.add_argument('--random_seed', type=int, default=None,

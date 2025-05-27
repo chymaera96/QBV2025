@@ -65,12 +65,6 @@ class QVIMModule(pl.LightningModule):
             nn.Conv2d(960, 960, 1)
 )
         
-        self.global_projector = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(start_dim=1),
-            nn.Linear(960, config.projection_dim),
-        )
-
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
 
@@ -103,7 +97,7 @@ class QVIMModule(pl.LightningModule):
             target_projected = self.target_encoder[1](target_f).detach()  # [B, proj_dim]
 
         context_f = self.context_encoder[0](x)                       # [B, 960, 4, 32]
-        masked_f, mask = self.mask_features(context_f)              
+        masked_f, mask = self.mask_features(context_f)                            
         predicted_f = self.predictor(masked_f)                      # [B, 960, 4, 32]
         projected = self.context_encoder[1](predicted_f)            # [B, proj_dim]
 
@@ -128,8 +122,8 @@ class QVIMModule(pl.LightningModule):
 
         x = batch['imitation']
         predicted_f, target_f, mask = self.forward(x)
-
-        loss = F.mse_loss(predicted_f[mask == 0], target_f[mask == 0])
+        mask = mask.unsqueeze(1)  # [B, 1, 4, 32]
+        loss = F.mse_loss(predicted_f * mask, target_f * mask)
         self.log('train/loss', loss, on_step=True, on_epoch=True)
         return loss
 

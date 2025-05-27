@@ -114,7 +114,7 @@ class QVIMModule(pl.LightningModule):
         return F.normalize(z, dim=1)
 
     def training_step(self, batch, batch_idx):
-        self.mel.train()
+        self.mel.eval()
         self.lr_scheduler_step(batch_idx)
         self.momentum_update()
 
@@ -129,6 +129,9 @@ class QVIMModule(pl.LightningModule):
 
         # === JEPA loss
         mask = mask.unsqueeze(1)                                    # [B, 1, H, W]
+        assert predicted_map.shape == target_map.shape, \
+            f"Shape mismatch: predicted_map {predicted_map.shape}, target_map {target_map.shape} \
+            input: {x_imit.shape}, {x_ref.shape}"
         jepa_loss = F.mse_loss(predicted_map * mask, target_map * mask)
 
         # === Contrastive loss (pooled + projected)

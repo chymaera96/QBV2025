@@ -97,16 +97,17 @@ class QVIMModule(pl.LightningModule):
 
     def forward(self, x):
         x = self.mel(x).unsqueeze(1)
+
         with torch.no_grad():
-            target_f = self.target_encoder(x).detach()
+            target_f = self.target_encoder[0](x)                     # [B, 960, 4, 32]
+            target_projected = self.target_encoder[1](target_f).detach()  # [B, proj_dim]
 
-        context_f = self.context_encoder[0](x)
-        masked_context_f, mask = self.mask_features(context_f)
-        context_projected = self.context_encoder[1](masked_context_f)
+        context_f = self.context_encoder[0](x)                       # [B, 960, 4, 32]
+        masked_f, mask = self.mask_features(context_f)              
+        predicted_f = self.predictor(masked_f)                      # [B, 960, 4, 32]
+        projected = self.context_encoder[1](predicted_f)            # [B, proj_dim]
 
-        predicted_f = self.predictor(context_projected)
-
-        return predicted_f, target_f, mask
+        return projected, target_projected, mask
 
     def forward_imitation(self, x):
         with torch.no_grad():

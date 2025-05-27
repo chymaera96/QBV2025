@@ -127,13 +127,3 @@ class VimSketch(torch.utils.data.Dataset):
             "query_id": query_info["query_id"],
             "reference_id": positive_ref_id,  # Changed key name to match training loop
         }
-
-
-# quantization for CLAP
-def int16_to_float32(x):
-    return (x / 32767.0).astype("float32")
-
-
-def float32_to_int16(x):
-    x = np.clip(x, a_min=-1.0, a_max=1.0)
-    return (x * 32767.0).astype("int16")

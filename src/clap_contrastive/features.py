@@ -13,13 +13,17 @@ import laion_clap
 import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
 
 
+# quantization for CLAP
 def int16_to_float32(x):
-    """Convert from int16 to float32."""
+    if isinstance(x, torch.Tensor):
+        return (x / 32767.0).float()
     return (x / 32767.0).astype("float32")
 
 
 def float32_to_int16(x):
-    """Convert from float32 to int16."""
+    if isinstance(x, torch.Tensor):
+        x = torch.clamp(x, min=-1.0, max=1.0)
+        return (x * 32767.0).short()
     x = np.clip(x, a_min=-1.0, a_max=1.0)
     return (x * 32767.0).astype("int16")
 
@@ -85,4 +89,4 @@ class CLAPFeatureExtractor:
                     x=audio_tensor, use_tensor=True
                 )
 
-            return features.squeeze(0)
+            return features.squeeze(0).cpu()

@@ -114,7 +114,7 @@ class QVIMModule(pl.LightningModule):
         return F.normalize(z, dim=1)
 
     def training_step(self, batch, batch_idx):
-        self.mel.eval()
+        self.mel.train()
         self.lr_scheduler_step(batch_idx)
         self.momentum_update()
 

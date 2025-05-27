@@ -20,6 +20,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.duration = duration
 
         self.augment_ref = Augment(sample_rate=48000, max_transforms=1)
+        self.augment_imit = Augment(sample_rate=sample_rate, max_transforms=1)
 
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),
@@ -90,12 +91,17 @@ class VimSketchDataset(torch.utils.data.Dataset):
         # reference = self.load_audio(reference_path, sr=48000)
         reference = self.__pad_or_truncate__(reference, sr=48000)
 
+        imitation_path = os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])
+        imitation = self.augment_imit(self.load_audio(imitation_path))
+        # imitation = self.load_audio(imitation_path)
+        imitation = self.__pad_or_truncate__(imitation)
+
         return {
             # 'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),
             'reference_filename': row['filename_reference'],
             'imitation_filename': row['filename_imitation'],
             'reference': reference,
-            'imitation': self.load_audio(os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])),
+            'imitation': imitation,
 
         }
 

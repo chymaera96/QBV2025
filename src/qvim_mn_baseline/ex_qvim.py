@@ -44,7 +44,7 @@ class QVIMModule(pl.LightningModule):
             fmax_aug_range=config.fmax_aug_range
         )
 
-        self.imitation_encoder = MobileNetWithProjection()
+        self.imitation_encoder = MobileNetWithProjection(pretrained_name=None)
         self.reference_encoder = CLAPWithProjection()
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
@@ -67,7 +67,7 @@ class QVIMModule(pl.LightningModule):
         return torch.nn.functional.normalize(y_reference, dim=1)
 
     def training_step(self, batch, batch_idx):
-
+        self.mel.train()
         self.lr_scheduler_step(batch_idx)
 
         # # assert device and dtype of reference
@@ -93,7 +93,7 @@ class QVIMModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-
+        self.mel.eval()
         y_imitation = self.forward_imitation(batch['imitation'])
         y_reference = self.forward_reference(batch['reference']) 
 

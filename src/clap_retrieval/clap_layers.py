@@ -1,5 +1,7 @@
 import glob
+import io  # Add this
 import os
+import re  # Add this
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -230,10 +232,186 @@ class CLAP(nn.Module):
         return results
 
 
+def update_readme_with_results(all_results, readme_path="README.md"):
+    start_marker = "<!--LAYER_RESULTS_TABLE_START-->"
+    end_marker = "<!--LAYER_RESULTS_TABLE_END-->"
+
+    table_content = "| Layer Name / Description             | MRR (exact match) |\n"
+    table_content += "|--------------------------------------|-------------------|\n"
+
+    # Add top 3 and the default CLAP if not in top 3
+    # Filter out errors (mrr < 0) before sorting for top 3
+    valid_results = [r for r in all_results if r["mrr"] >= 0]
+    top_3 = sorted(valid_results, key=lambda x: x["mrr"], reverse=True)[:3]
+
+    default_clap_result = next(
+        (r for r in all_results if r["layer_name"] == "Default CLAP Final Embedding"),
+        None,
+    )
+
+    display_results_dict = {}  # Use dict to ensure unique layer names in table
+
+    for res in top_3:
+        display_results_dict[res["layer_name"]] = res
+
+    if (
+        default_clap_result
+        and default_clap_result["layer_name"] not in display_results_dict
+    ):
+        display_results_dict[default_clap_result["layer_name"]] = default_clap_result
+
+    # Sort again by MRR for final display order in the table
+    sorted_display_results = sorted(
+        display_results_dict.values(), key=lambda x: x["mrr"], reverse=True
+    )
+
+    for res in sorted_display_results:
+        # Escape pipe characters in layer names for Markdown table
+        safe_layer_name = res["description"].replace("|", "\\|")
+        table_content += f"| CLAP 1 ({safe_layer_name}) | {res['mrr']:.4f} |\n"
+
+    try:
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        start_index = content.find(start_marker)
+        end_index = content.find(end_marker)
+
+        if start_index != -1 and end_index != -1 and start_index < end_index:
+            pre_content = content[: start_index + len(start_marker)]
+            post_content = content[end_index:]
+            new_content = pre_content + "\n" + table_content + "\n" + post_content
+
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            print(f"\n{readme_path} updated successfully with layer results.")
+        else:
+            print(
+                f"\nCould not find markers {start_marker} and {end_marker} in {readme_path}. Table not updated."
+            )
+    except Exception as e:
+        print(f"\nError updating {readme_path}: {e}")
+
+
 if __name__ == "__main__":
-    desired_layer = "layers.2.blocks.0"
-    clap_instance = CLAP(model_id=1, target_audio_layer=desired_layer)
+    # For CLAP model_id=1, the audio encoder is HTSAT-tiny with depths=[2, 2, 6, 2]
+    htsat_depths = [2, 2, 6, 2]
+    num_stages = len(htsat_depths)
 
-    # clap_instance = CLAP(model_id=1)
+    layers_to_evaluate = []
 
-    evaluate_qvim_system(clap_instance.compute_similarities, data_path="data/DEV/")
+    # 0. Default CLAP (final embedding)
+    layers_to_evaluate.append(
+        {"name": None, "description": "Default CLAP Final Embedding"}
+    )
+
+    # 1. Patch Embedding output
+    layers_to_evaluate.append(
+        {"name": "patch_embed", "description": "Patch Embedding Output"}
+    )
+
+    # 2. Output of each SwinTransformerBlock in each BasicLayer
+    for i in range(num_stages):
+        for j in range(htsat_depths[i]):
+            layers_to_evaluate.append(
+                {
+                    "name": f"layers.{i}.blocks.{j}",
+                    "description": f"HTSAT Stage {i} Block {j} Output",
+                }
+            )
+
+    # 3. Output of each BasicLayer (stage)
+    for i in range(num_stages):
+        layers_to_evaluate.append(
+            {"name": f"layers.{i}", "description": f"HTSAT Stage {i} Output"}
+        )
+
+    # 4. Output of the final normalization layer in HTSAT backbone
+    layers_to_evaluate.append(
+        {"name": "norm", "description": "HTSAT Final Norm Output"}
+    )
+
+    evaluation_results = []
+
+    print(
+        f"Starting evaluation for {len(layers_to_evaluate)} layer configurations using CLAP model_id=1..."
+    )
+
+    for layer_config in tqdm(
+        layers_to_evaluate, desc="Overall Layer Evaluation Progress"
+    ):
+        layer_name = layer_config["name"]
+        layer_desc = layer_config["description"]
+
+        print(
+            f"\n--- Evaluating Layer: {layer_desc} (Technical Name: {layer_name if layer_name else 'N/A (Default)'}) ---"
+        )
+
+        mrr_score = -1.0  # Default to error/failure
+        full_log_output = "Evaluation did not run or failed."
+
+        try:
+            clap_instance = CLAP(model_id=1, target_audio_layer=layer_name)
+
+            # Capture stdout from evaluate_qvim_system
+            old_stdout = sys.stdout
+            sys.stdout = captured_output_buffer = io.StringIO()
+
+            evaluate_qvim_system(
+                clap_instance.compute_similarities, data_path="data/DEV/"
+            )
+
+            sys.stdout = old_stdout  # Important: Reset stdout
+            full_log_output = captured_output_buffer.getvalue()
+
+            # Print the captured output for immediate visibility
+            print("\nEvaluation Output:")
+            print(full_log_output)
+
+            mrr_match = re.search(r"MRR\s+:\s*([0-9.]+)", full_log_output)
+            if mrr_match:
+                mrr_score = float(mrr_match.group(1))
+                print(f"Successfully Extracted MRR: {mrr_score:.4f}")
+            else:
+                print("Could not extract MRR from output.")
+                mrr_score = 0.0  # Indicate parsing failure but run completed
+
+            del clap_instance
+            torch.cuda.empty_cache()
+
+        except Exception as e:
+            print(f"ERROR during evaluation of layer '{layer_desc}': {e}")
+            full_log_output = f"ERROR: {e}\n\n{getattr(e, 'traceback', '')}"  # Include traceback if possible
+            # Ensure stdout is reset even if an error occurs within the try block before reset
+            if sys.stdout != old_stdout:
+                sys.stdout = old_stdout
+
+        evaluation_results.append(
+            {
+                "layer_name": layer_name
+                if layer_name
+                else "Default CLAP Final Embedding",  # Use consistent name for default
+                "description": layer_desc,
+                "mrr": mrr_score,
+                "full_log": full_log_output,
+            }
+        )
+        print(f"--- Finished Layer: {layer_desc} | MRR: {mrr_score:.4f} ---")
+
+    # Sort results by MRR in descending order
+    evaluation_results.sort(key=lambda x: x["mrr"], reverse=True)
+
+    print("\n\n========== TOP 3 PERFORMING LAYERS (CLAP model_id=1) ==========")
+    for i, res in enumerate(evaluation_results[:3]):
+        print(
+            f"{i + 1}. Layer: {res['description']} (Name: {res['layer_name']}) - MRR: {res['mrr']:.4f}"
+        )
+
+    print("\n========== ALL LAYER RESULTS (CLAP model_id=1) ==========")
+    for res in evaluation_results:
+        print(
+            f"Layer: {res['description']} (Name: {res['layer_name']}) - MRR: {res['mrr']:.4f}"
+        )
+
+    # Update README.md
+    update_readme_with_results(evaluation_results)

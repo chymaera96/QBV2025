@@ -29,6 +29,8 @@ Simply run or modify `train_basline.sh`.
 
 ## Performance and Insights
 
+### Frozen CLAP retrieval
+
 CLAP 0-3 use the representations from the pretrained checkpoints, without further training.
 * CLAP 0: '630k-best.pt',
 * CLAP 1: '630k-audioset-best.pt',
@@ -47,3 +49,4 @@ CLAP 0-3 use the representations from the pretrained checkpoints, without furthe
 | CLAP 3       | 0.1301            | 0.4940                |
 | CLAP AF      | 0.1127            | 0.4743                |
 
+### Frozen CLAP retrieval with other layers

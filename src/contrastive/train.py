@@ -129,6 +129,10 @@ def train_epoch(
         if use_wandb:
             wandb.log({"batch/loss": loss.item()})
 
+        # Add explicit memory cleanup every few batches
+        if batch_idx % 10 == 0:
+            torch.cuda.empty_cache()
+
     epoch_loss = running_loss / len(dataloader.dataset)
     return epoch_loss
 
@@ -316,7 +320,11 @@ def main(args):
     elif args.encoder_type == "openl3":
         print("Initializing OpenL3 feature extractor...")
         feature_extractor = OpenL3FeatureExtractor(device=device)
-        feature_dim = 6144  # Fixed for mel256, env, 6144 configuration
+        # Explicitly ensure eval mode and frozen parameters
+        feature_extractor.model.eval()
+        for param in feature_extractor.model.parameters():
+            param.requires_grad = False
+        feature_dim = 6144
         sample_rate = 48000
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")

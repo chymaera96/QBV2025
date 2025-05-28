@@ -103,6 +103,11 @@ class OpenL3FeatureExtractor:
             input_repr="mel256", content_type="env", embedding_size=6144
         )
 
+        # Add these lines to ensure model is in eval mode and frozen
+        self.model.eval()
+        for param in self.model.parameters():
+            param.requires_grad = False
+
     def __call__(self, audio_tensor):
         """
         Extract OpenL3 features directly from audio tensor
@@ -113,6 +118,7 @@ class OpenL3FeatureExtractor:
         Returns:
             Feature tensor
         """
+        # Wrap everything in no_grad since this is a frozen feature extractor
         with torch.no_grad():
             if isinstance(audio_tensor, torch.Tensor):
                 audio_np = audio_tensor.cpu().numpy()
@@ -143,4 +149,5 @@ class OpenL3FeatureExtractor:
             if not isinstance(embedding, torch.Tensor):
                 embedding = torch.tensor(embedding)
 
+            # Ensure we return CPU tensor to avoid GPU memory accumulation
             return embedding.cpu()

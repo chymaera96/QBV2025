@@ -394,9 +394,9 @@ if __name__ == '__main__':
                         help="Total number of training epochs.")
     parser.add_argument('--weight_decay', type=float, default=0.,
                         help="L2 weight regularization to prevent overfitting.")
-    parser.add_argument('--max_lr', type=float, default=1.0e-4,
+    parser.add_argument('--max_lr', type=float, default=1.0e-3,
                         help="Maximum learning rate.")
-    parser.add_argument('--min_lr', type=float, default=1.0e-5,
+    parser.add_argument('--min_lr', type=float, default=5.0e-5,
                         help="Final learning rate at the end of training.")
     # parser.add_argument('--warmup_epochs', type=int, default=1,
     #                    help="Number of warm-up epochs where learning rate increases gradually.")
@@ -406,7 +406,7 @@ if __name__ == '__main__':
                     help="Fraction of total epochs for warmup (e.g., default = 0.1 = 10%)")
     parser.add_argument('--rampdown_percent', type=float, default=0.8, # modified to use percent
                     help="Fraction of total epochs for cosine rampdown (e.g., default = 0.8 = 80%)")
-    parser.add_argument('--initial_tau', type=float, default=0.1,
+    parser.add_argument('--initial_tau', type=float, default=0.07,
                         help="Temperature parameter for the loss function.")
     parser.add_argument('--tau_trainable', default=False, action='store_true',
                         help="make tau trainable or not.")

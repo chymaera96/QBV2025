@@ -15,8 +15,8 @@ class Augment(nn.Module):
         self.train_transform_options = [
             Shift(min_shift=-0.2, max_shift=0.2, p=1.0),
             Gain(min_gain_db=-10, max_gain_db=10, p=1.0),
-            PitchShift(min_semitones=-3, max_semitones=3, p=1.0),
-            TimeStretch(min_rate=0.8, max_rate=1.2, p=1.0),
+            # PitchShift(min_semitones=-3, max_semitones=3, p=1.0),
+            # TimeStretch(min_rate=0.8, max_rate=1.2, p=1.0),
             # FrameLevelCorruption(remove_prob=0.0, silence_prob=0.0),
             # FrameLevelCorruption(duplicate_prob=0.0, silence_prob=0.0),
             # FrameLevelCorruption(duplicate_prob=0.0, remove_prob=0.0),

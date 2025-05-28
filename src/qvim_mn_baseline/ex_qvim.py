@@ -19,7 +19,7 @@ from wandb import Settings
 from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.projection import CLAPWithProjection, MobileNetWithProjection, SharedProjectionEncoder
+from qvim_mn_baseline.projection import PaSSTWithProjection
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
 
 class QVIMModule(pl.LightningModule):
@@ -31,24 +31,21 @@ class QVIMModule(pl.LightningModule):
         super().__init__()
         self.config = config
 
-        self.mel = AugmentMelSTFT(
-            n_mels=config.n_mels,
-            sr=config.sample_rate,
-            win_length=config.window_size,
-            hopsize=config.hop_size,
-            n_fft=config.n_fft,
-            freqm=config.freqm,
-            timem=config.timem,
-            fmin=config.fmin,
-            fmax=config.fmax,
-            fmin_aug_range=config.fmin_aug_range,
-            fmax_aug_range=config.fmax_aug_range
-        )
+        # self.mel = AugmentMelSTFT(
+        #     n_mels=config.n_mels,
+        #     sr=config.sample_rate,
+        #     win_length=config.window_size,
+        #     hopsize=config.hop_size,
+        #     n_fft=config.n_fft,
+        #     freqm=config.freqm,
+        #     timem=config.timem,
+        #     fmin=config.fmin,
+        #     fmax=config.fmax,
+        #     fmin_aug_range=config.fmin_aug_range,
+        #     fmax_aug_range=config.fmax_aug_range
+        # )
 
-        self.imitation_encoder = MobileNetWithProjection()
-        self.reference_encoder = CLAPWithProjection()
-        self.shared_projector = SharedProjectionEncoder()
-
+        self.encoder = PaSSTWithProjection(projection_dim=config.proj_dim)
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
 
@@ -57,23 +54,24 @@ class QVIMModule(pl.LightningModule):
     def forward(self, queries, items):
         y_imit = self.forward_imitation(queries)
         y_ref = self.forward_reference(items)
-        z_imit, z_ref = self.shared_projector(y_imit, y_ref)
-        return F.normalize(z_imit, dim=1), F.normalize(z_ref, dim=1)
+        return y_imit, y_ref
 
     def forward_imitation(self, imitations):
-        with torch.no_grad():
-            imitations = self.mel(imitations).unsqueeze(1)
-        y_imitation = self.imitation_encoder(imitations)
-        # y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
+        # with torch.no_grad():
+        #     imitations = self.mel(imitations).unsqueeze(1)
+        # y_imitation = self.imitation_encoder(imitations)
+        y_imitation = self.encoder(imitations)
+        y_imitation = F.normalize(y_imitation, dim=1)
         return y_imitation
 
     def forward_reference(self, items):
-        y_reference = self.reference_encoder(items)
-        # return torch.nn.functional.normalize(y_reference, dim=1)
+        # y_reference = self.reference_encoder(items)
+        y_reference = self.encoder(items)
+        y_reference = F.normalize(y_reference, dim=1)
         return y_reference
 
     def training_step(self, batch, batch_idx):
-        self.mel.train()
+        self.model.mel.train()
         self.lr_scheduler_step(batch_idx)
 
         z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
@@ -96,11 +94,11 @@ class QVIMModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         self.mel.eval()
-        # y_imitation = self.forward_imitation(batch['imitation'])
-        # y_reference = self.forward_reference(batch['reference']) 
-        z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
+        y_imitation = self.forward_imitation(batch['imitation'])
+        y_reference = self.forward_reference(batch['reference']) 
+        # z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
 
-        C = torch.matmul(z_imit, z_ref.T)
+        C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)
 
         C_text = torch.log_softmax(C, dim=1)
@@ -117,8 +115,8 @@ class QVIMModule(pl.LightningModule):
 
         self.validation_output.extend([
             {
-                'imitation': copy.deepcopy(z_imit.detach().cpu().numpy()),
-                'reference': copy.deepcopy(z_ref.detach().cpu().numpy()),
+                'imitation': copy.deepcopy(y_imitation.detach().cpu().numpy()),
+                'reference': copy.deepcopy(y_reference.detach().cpu().numpy()),
                 'imitation_filename': batch['imitation_filename'],
                 'reference_filename': batch['reference_filename'],
                 'imitation_class': batch['imitation_class'],
@@ -313,8 +311,10 @@ if __name__ == '__main__':
                         help="Path to the data sets.")
 
     # Encoder architecture
-    parser.add_argument('--pretrained_name', type=str, default="mn10_as",
-                        help="Pretrained model name for transfer learning.")
+    # parser.add_argument('--pretrained_name', type=str, default="mn10_as",
+    #                     help="Pretrained model name for transfer learning.")
+    parser.add_argument('--proj_dim', type=int, default=512,
+                        help="Projection dimension for the model.")
 
     # Training
     parser.add_argument('--random_seed', type=int, default=None,

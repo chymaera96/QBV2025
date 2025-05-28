@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
 from .dataset import VimSketch
 from .evaluate import evaluate_qvim_system
-from .features import CLAPFeatureExtractor
+from .features import CLAPFeatureExtractor, OpenL3FeatureExtractor
 
 
 class ProjectionMLP(nn.Module):
@@ -133,9 +133,12 @@ def train_epoch(
     return epoch_loss
 
 
-def validate_with_evaluate(projection_mlp, clap_feature_extractor, data_path, device):
+def validate_with_evaluate(
+    projection_mlp, feature_extractor, data_path, device, encoder_type="clap"
+):
     projection_mlp.eval()
-    clap_feature_extractor.model.eval()
+    if hasattr(feature_extractor, "model"):
+        feature_extractor.model.eval()
 
     def compute_similarities(items, queries):
         results = {}
@@ -144,19 +147,30 @@ def validate_with_evaluate(projection_mlp, clap_feature_extractor, data_path, de
         item_embeddings = {}
         for item_id, file_path in tqdm(items.items(), desc="Processing items"):
             with torch.no_grad():
-                # Get CLAP embeddings
-                if clap_feature_extractor.is_afclap:
-                    feature = (
-                        clap_feature_extractor.model.get_audio_embedding_from_filelist(
-                            x=[file_path], sr=16000, use_tensor=True
+                if encoder_type == "clap":
+                    # Get CLAP embeddings
+                    if feature_extractor.is_afclap:
+                        feature = (
+                            feature_extractor.model.get_audio_embedding_from_filelist(
+                                x=[file_path], sr=16000, use_tensor=True
+                            )
                         )
-                    )
-                else:
-                    feature = (
-                        clap_feature_extractor.model.get_audio_embedding_from_filelist(
-                            x=[file_path], use_tensor=True
+                    else:
+                        feature = (
+                            feature_extractor.model.get_audio_embedding_from_filelist(
+                                x=[file_path], use_tensor=True
+                            )
                         )
+                elif encoder_type == "openl3":
+                    # Get OpenL3 embeddings
+                    import librosa
+
+                    audio, sr = librosa.load(
+                        file_path, sr=feature_extractor.sample_rate, mono=True
                     )
+                    feature = feature_extractor(audio).unsqueeze(
+                        0
+                    )  # Add batch dimension
 
                 # Project through trained MLP
                 feature = feature.to(device)
@@ -169,19 +183,30 @@ def validate_with_evaluate(projection_mlp, clap_feature_extractor, data_path, de
         query_embeddings = {}
         for query_id, file_path in tqdm(queries.items(), desc="Processing queries"):
             with torch.no_grad():
-                # Get CLAP embeddings
-                if clap_feature_extractor.is_afclap:
-                    feature = (
-                        clap_feature_extractor.model.get_audio_embedding_from_filelist(
-                            x=[file_path], sr=16000, use_tensor=True
+                if encoder_type == "clap":
+                    # Get CLAP embeddings
+                    if feature_extractor.is_afclap:
+                        feature = (
+                            feature_extractor.model.get_audio_embedding_from_filelist(
+                                x=[file_path], sr=16000, use_tensor=True
+                            )
                         )
-                    )
-                else:
-                    feature = (
-                        clap_feature_extractor.model.get_audio_embedding_from_filelist(
-                            x=[file_path], use_tensor=True
+                    else:
+                        feature = (
+                            feature_extractor.model.get_audio_embedding_from_filelist(
+                                x=[file_path], use_tensor=True
+                            )
                         )
+                elif encoder_type == "openl3":
+                    # Get OpenL3 embeddings
+                    import librosa
+
+                    audio, sr = librosa.load(
+                        file_path, sr=feature_extractor.sample_rate, mono=True
                     )
+                    feature = feature_extractor(audio).unsqueeze(
+                        0
+                    )  # Add batch dimension
 
                 # Project through trained MLP
                 feature = feature.to(device)
@@ -219,17 +244,24 @@ def validate_with_evaluate(projection_mlp, clap_feature_extractor, data_path, de
 
 def main(args):
     wandb_entity = os.environ.get("WANDB_ENTITY", None)
-    wandb_project = os.environ.get(
-        "WANDB_PROJECT", "qvim_contrastive"
-    )  # Changed project name slightly
+    wandb_project = os.environ.get("WANDB_PROJECT", "qvim_contrastive")
 
     # Create a more descriptive save path for the contrastive model
     model_name_parts = [
         "SC",
-        f"clap-{args.clap_model_id}",
-        f"aug-{args.augment}",
-        f"proj-{args.projection_output_dim}",
+        f"{args.encoder_type}",
     ]
+
+    if args.encoder_type == "clap":
+        model_name_parts.append(f"clap-{args.clap_model_id}")
+
+    model_name_parts.extend(
+        [
+            f"aug-{args.augment}",
+            f"proj-{args.projection_output_dim}",
+        ]
+    )
+
     if args.hidden_dims:
         model_name_parts.append(f"hidden-{'-'.join(map(str, args.hidden_dims))}")
 
@@ -265,22 +297,33 @@ def main(args):
     )
     print(f"Using device: {device}")
 
-    print("Initializing CLAP feature extractor...")
-    clap_sample_rate = 48000 if args.clap_model_id != "AF" else 16000
-    feature_extractor = CLAPFeatureExtractor(
-        model_id=int(args.clap_model_id) if args.clap_model_id != "AF" else "AF",
-        device=device,
-    )
-    # CLAP features are frozen, so set to eval mode
-    feature_extractor.model.eval()
+    # Initialize feature extractor based on encoder type
+    if args.encoder_type == "clap":
+        print("Initializing CLAP feature extractor...")
+        clap_sample_rate = 48000 if args.clap_model_id != "AF" else 16000
+        feature_extractor = CLAPFeatureExtractor(
+            model_id=int(args.clap_model_id) if args.clap_model_id != "AF" else "AF",
+            device=device,
+        )
+        # CLAP features are frozen, so set to eval mode
+        feature_extractor.model.eval()
 
-    clap_feature_dim = 512
-    if args.clap_model_id == "AF":
-        clap_feature_dim = 2048
+        feature_dim = 512
+        if args.clap_model_id == "AF":
+            feature_dim = 2048
+        sample_rate = clap_sample_rate
+
+    elif args.encoder_type == "openl3":
+        print("Initializing OpenL3 feature extractor...")
+        feature_extractor = OpenL3FeatureExtractor(device=device)
+        feature_dim = 6144  # Fixed for mel256, env, 6144 configuration
+        sample_rate = 48000
+    else:
+        raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
     train_dataset = VimSketch(
         root_dir=args.data_dir,
-        sample_rate=clap_sample_rate,
+        sample_rate=sample_rate,
         feature_extractor=feature_extractor,
         seed=args.seed,
         augment=args.augment,
@@ -297,7 +340,7 @@ def main(args):
 
     print("Creating Projection MLP model...")
     model = ProjectionMLP(
-        input_dim=clap_feature_dim,
+        input_dim=feature_dim,
         hidden_dims=args.hidden_dims,
         output_dim=args.projection_output_dim,
         dropout_rate=args.dropout_rate,
@@ -366,9 +409,9 @@ def main(args):
 
         if (epoch + 1) % args.eval_every == 0:
             print(f"Epoch {epoch + 1}: Validating...")
-            # Pass the MLP (projection head) and the CLAP feature extractor
+            # Pass the MLP (projection head), feature extractor, and encoder type
             val_metrics = validate_with_evaluate(
-                model, feature_extractor, args.eval_data_dir, device
+                model, feature_extractor, args.eval_data_dir, device, args.encoder_type
             )
             print(f"MRR: {val_metrics['mrr']:.4f}")
             print(f"Class-wise MRR: {val_metrics['class_wise_mrr']:.4f}")
@@ -399,6 +442,8 @@ def main(args):
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "metrics": val_metrics,
+                        "encoder_type": args.encoder_type,
+                        "feature_dim": feature_dim,
                     },
                     save_path,
                 )
@@ -463,13 +508,22 @@ if __name__ == "__main__":
         help="Path to the evaluation dataset (AIMLA DEV)",
     )
 
-    # Model parameters
+    # Encoder parameters
+    parser.add_argument(
+        "--encoder_type",
+        type=str,
+        default="clap",
+        choices=["clap", "openl3"],
+        help="Type of audio encoder to use",
+    )
     parser.add_argument(
         "--clap_model_id",
         type=str,
         default="1",
-        help="CLAP model ID (e.g., '1', '2', '3', or 'AF' for AFCLAP)",
+        help="CLAP model ID (e.g., '1', '2', '3', or 'AF' for AFCLAP). Only used when encoder_type='clap'",
     )
+
+    # Model parameters
     parser.add_argument(
         "--hidden_dims",
         nargs="+",

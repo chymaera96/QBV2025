@@ -3,6 +3,7 @@ import sys
 
 import numpy as np
 import torch
+import torchopenl3
 
 # Add project root to Python path if needed
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -90,3 +91,56 @@ class CLAPFeatureExtractor:
                 )
 
             return features.squeeze(0).cpu()
+
+
+class OpenL3FeatureExtractor:
+    def __init__(self, device="cuda"):
+        self.device = device
+        self.sample_rate = 48000
+
+        # Fixed OpenL3 configuration as requested
+        self.model = torchopenl3.models.load_audio_embedding_model(
+            input_repr="mel256", content_type="env", embedding_size=6144
+        )
+
+    def __call__(self, audio_tensor):
+        """
+        Extract OpenL3 features directly from audio tensor
+
+        Args:
+            audio_tensor: Audio tensor (1D tensor of audio samples)
+
+        Returns:
+            Feature tensor
+        """
+        with torch.no_grad():
+            if isinstance(audio_tensor, torch.Tensor):
+                audio_np = audio_tensor.cpu().numpy()
+            else:
+                audio_np = audio_tensor
+
+            # Ensure mono audio
+            if audio_np.ndim > 1:
+                audio_np = audio_np.mean(axis=0)
+
+            # Extract embeddings using OpenL3
+            emb, ts = torchopenl3.get_audio_embedding(
+                audio_np, self.sample_rate, model=self.model, center=True, hop_size=0.1
+            )
+
+            # Average over time dimension to get a single embedding
+            # emb shape is (1, num_frames, embedding_size)
+            if emb.ndim == 3:
+                embedding = emb.squeeze(0).mean(
+                    dim=0
+                )  # Remove batch dim and average over time
+            elif emb.ndim == 2:
+                embedding = emb.mean(dim=0)  # Average over time
+            else:
+                embedding = emb.squeeze()
+
+            # Convert to tensor if not already
+            if not isinstance(embedding, torch.Tensor):
+                embedding = torch.tensor(embedding)
+
+            return embedding.cpu()

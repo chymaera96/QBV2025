@@ -195,7 +195,7 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
         reference_name = os.path.join(self.dataset_dir, 'Items', row['Class'], row['Items'])
         imitation_name = os.path.join(self.dataset_dir, 'Queries', row['Class'], row['Query'])
 
-        reference = self.load_audio(reference_name, sr=48000)
+        reference = self.load_audio(reference_name)
         imitation = self.load_audio(imitation_name)
 
         return {

@@ -21,6 +21,5 @@ class PaSSTWithProjection(nn.Module):
 
     def forward(self, x):
         features = self.backbone(x)  # [B, N, 768]
-        print(f"Features shape: {features.shape}")  # Debugging lineW
-        pooled = features.mean(dim=1)  # global average pooling over tokens
-        return self.projector(pooled)
+        # pooled = features.mean(dim=1)  # global average pooling over tokens
+        return self.projector(features)  # [B, projection_dim]

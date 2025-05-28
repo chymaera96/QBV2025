@@ -261,9 +261,8 @@ def main(args):
     elif args.encoder_type == "openl3":
         model_name_parts.extend(
             [
-                f"{args.openl3_input_repr}",
-                f"{args.openl3_content_type}",
-                f"{args.openl3_embedding_size}",
+                f"in-{args.openl3_input_repr}",
+                f"emb-{args.openl3_embedding_size}",
             ]
         )
 

@@ -93,7 +93,7 @@ class QVIMModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        self.mel.eval()
+        # self.mel.eval()
         y_imitation = self.forward_imitation(batch['imitation'])
         y_reference = self.forward_reference(batch['reference']) 
         # z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])

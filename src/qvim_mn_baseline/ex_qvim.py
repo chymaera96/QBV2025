@@ -71,7 +71,7 @@ class QVIMModule(pl.LightningModule):
         return y_reference
 
     def training_step(self, batch, batch_idx):
-        self.model.mel.train()
+        # self.encoder.mel.train()
         self.lr_scheduler_step(batch_idx)
 
         z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])

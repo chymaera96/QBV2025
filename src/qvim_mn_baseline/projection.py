@@ -20,6 +20,7 @@ class PaSSTWithProjection(nn.Module):
         )
 
     def forward(self, x):
+        assert x.shape[1] == 320000, f"Expected input shape [B, 320000], got {x.shape}"
         features = self.backbone(x)  # [B, N, 768]
         # pooled = features.mean(dim=1)  # global average pooling over tokens
         return self.projector(features)  # [B, projection_dim]

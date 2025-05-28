@@ -96,6 +96,9 @@ class VimSketchDataset(torch.utils.data.Dataset):
         # imitation = self.load_audio(imitation_path)
         imitation = self.__pad_or_truncate__(imitation)
 
+        assert reference.shape == torch.Size([320000]), f"Reference shape mismatch: {reference.shape}"
+        assert imitation.shape == torch.Size([320000]), f"Imitation shape mismatch: {imitation.shape}"
+
         return {
             # 'reference_path': os.path.join(self.dataset_dir, 'references', row['filename_reference']),
             'reference_filename': row['filename_reference'],

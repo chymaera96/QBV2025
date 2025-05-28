@@ -60,10 +60,11 @@ class QVIMModule(pl.LightningModule):
 
         self.target_encoder = deepcopy(self.context_encoder)  # Momentum encoder
         self.predictor = nn.Sequential(
-            nn.Conv2d(960, 960, 1),
+            nn.Conv2d(960, 960, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(960, 960, 1)
-)
+            nn.Conv2d(960, 960, kernel_size=3, padding=1)
+        )
+
         
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
@@ -71,7 +72,7 @@ class QVIMModule(pl.LightningModule):
         self.validation_output = []
 
     @torch.no_grad()
-    def momentum_update(self, m=0.999):
+    def momentum_update(self, m=0.99):
         for p_q, p_k in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
             p_k.data = m * p_k.data + (1. - m) * p_q.data
 

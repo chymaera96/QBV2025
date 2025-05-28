@@ -78,17 +78,16 @@ class QVIMModule(pl.LightningModule):
 
     def mask_features(self, f_map):
         B, C, F, T = f_map.shape
-        num_patches = F * T
-        num_mask = int(self.mask_ratio * num_patches)
-
         mask = torch.ones(B, F, T, device=f_map.device)
-        for i in range(B):
-            idx = torch.randperm(num_patches)[:num_mask]
-            f_idx = idx // T
-            t_idx = idx % T
-            mask[i, f_idx, t_idx] = 0
+
+        num_mask_cols = int(self.mask_ratio * T)
+
+        for b in range(B):
+            t_idx = torch.randperm(T)[:num_mask_cols]
+            mask[b, :, t_idx] = 0
 
         return f_map * mask.unsqueeze(1), mask
+
 
     def forward(self, x):
         x = self.mel(x).unsqueeze(1)

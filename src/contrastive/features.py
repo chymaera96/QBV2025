@@ -94,13 +94,24 @@ class CLAPFeatureExtractor:
 
 
 class OpenL3FeatureExtractor:
-    def __init__(self, device="cuda"):
+    def __init__(
+        self,
+        device="cuda",
+        input_repr="mel256",
+        embedding_size=6144,
+        content_type="env",
+    ):
         self.device = device
         self.sample_rate = 48000
+        self.input_repr = input_repr
+        self.embedding_size = embedding_size
+        self.content_type = content_type
 
-        # Fixed OpenL3 configuration as requested
+        # OpenL3 configuration with user-specified parameters
         self.model = torchopenl3.models.load_audio_embedding_model(
-            input_repr="mel256", content_type="env", embedding_size=6144
+            input_repr=input_repr,
+            content_type=content_type,
+            embedding_size=embedding_size,
         )
 
         # Add these lines to ensure model is in eval mode and frozen

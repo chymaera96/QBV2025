@@ -250,7 +250,7 @@ def main(args):
     wandb_entity = os.environ.get("WANDB_ENTITY", None)
     wandb_project = os.environ.get("WANDB_PROJECT", "qvim_contrastive")
 
-    # Create a more descriptive save path for the contrastive model
+    # Update the model name generation to include OpenL3 parameters
     model_name_parts = [
         "SC",
         f"{args.encoder_type}",
@@ -258,6 +258,14 @@ def main(args):
 
     if args.encoder_type == "clap":
         model_name_parts.append(f"clap-{args.clap_model_id}")
+    elif args.encoder_type == "openl3":
+        model_name_parts.extend(
+            [
+                f"{args.openl3_input_repr}",
+                f"{args.openl3_content_type}",
+                f"{args.openl3_embedding_size}",
+            ]
+        )
 
     model_name_parts.extend(
         [
@@ -319,12 +327,17 @@ def main(args):
 
     elif args.encoder_type == "openl3":
         print("Initializing OpenL3 feature extractor...")
-        feature_extractor = OpenL3FeatureExtractor(device=device)
+        feature_extractor = OpenL3FeatureExtractor(
+            device=device,
+            input_repr=args.openl3_input_repr,
+            embedding_size=args.openl3_embedding_size,
+            content_type=args.openl3_content_type,
+        )
         # Explicitly ensure eval mode and frozen parameters
         feature_extractor.model.eval()
         for param in feature_extractor.model.parameters():
             param.requires_grad = False
-        feature_dim = 6144
+        feature_dim = args.openl3_embedding_size  # Use the actual embedding size
         sample_rate = 48000
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
@@ -529,6 +542,29 @@ if __name__ == "__main__":
         type=str,
         default="1",
         help="CLAP model ID (e.g., '1', '2', '3', or 'AF' for AFCLAP). Only used when encoder_type='clap'",
+    )
+
+    # Add OpenL3-specific arguments
+    parser.add_argument(
+        "--openl3_input_repr",
+        type=str,
+        default="mel256",
+        choices=["linear", "mel128", "mel256"],
+        help="Input representation for OpenL3 model. Only used when encoder_type='openl3'",
+    )
+    parser.add_argument(
+        "--openl3_embedding_size",
+        type=int,
+        default=6144,
+        choices=[512, 6144],
+        help="Embedding size for OpenL3 model. Only used when encoder_type='openl3'",
+    )
+    parser.add_argument(
+        "--openl3_content_type",
+        type=str,
+        default="env",
+        choices=["music", "env"],
+        help="Content type for OpenL3 model. Only used when encoder_type='openl3'",
     )
 
     # Model parameters

@@ -6,7 +6,7 @@ from hear21passt.base import get_basic_model
 class PaSSTWithProjection(nn.Module):
     def __init__(self, projection_dim=512, freeze_backbone=True):
         super().__init__()
-        self.backbone = get_basic_model(mode="features")  # exclude classifier
+        self.backbone = get_basic_model(mode="embed_only")  # exclude classifier
 
         if freeze_backbone:
             for param in self.backbone.parameters():

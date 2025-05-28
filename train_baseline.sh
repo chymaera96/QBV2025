@@ -4,5 +4,5 @@ python src/qvim_mn_baseline/ex_qvim.py --num_gpus 1 --precision bf16-mixed \
                                         --n_epochs 100 \
                                         --loss_ratio 0.0 \
                                         --mask_ratio 0.6 \
-                                        --id jepa_3
+                                        --id jepa_4
 

@@ -3,64 +3,88 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from typing import Optional
 
-import laion_clap
+import argparse
+
+import librosa
+import numpy as np
 import torch
+import torchopenl3
 from torch import nn
 from tqdm import tqdm
 
-import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
-from src.clap_retrieval.evaluate import evaluate_qvim_system
+from src.retrieval.evaluate import evaluate_qvim_system
 
 
-class CLAP(nn.Module):
-    def __init__(self, model_id=1, target_audio_layer: Optional[str] = None):
-        super(CLAP, self).__init__()
+class OpenL3(nn.Module):
+    def __init__(self, input_repr="mel128", embedding_size=512, content_type="env"):
+        super(OpenL3, self).__init__()
 
-        self.is_afclap = False
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.sample_rate = 48000
+        self.input_repr = input_repr
+        self.embedding_size = embedding_size
+        self.content_type = content_type
 
-        if model_id == "AF":
-            self.is_afclap = True
-            afclap_ckpt_path = "./ckpt/afclap.pt"
-
-            # Initialize AFCLAP model
-            # Note: target_audio_layer is not currently passed to AFCLAP.
-            # If needed for AFCLAP, its CLAP_Module and underlying model would require similar modifications.
-            self.model = af_laion_clap.CLAP_Module(
-                enable_fusion=True, amodel="HTSAT-afclap", tmodel="t5"
-            ).cuda()
-
-            # Load AFCLAP checkpoint
-            self.model.load_afclap_ckpt(ckpt=afclap_ckpt_path, verbose=False)
-        else:
-            # Original CLAP initialization
-            enable_fusion = False
-            # Model IDs 2 and 3 are fusion models in standard CLAP
-            if str(model_id) == "2" or str(model_id) == "3":
-                enable_fusion = True
-
-            # Pass target_audio_layer to laion_clap.CLAP_Module constructor
-            self.model = laion_clap.CLAP_Module(
-                enable_fusion=enable_fusion, target_audio_layer_name=target_audio_layer
-            ).to("cuda")
-            self.model.load_ckpt(model_id=model_id)
-
-        self.model.eval()
+        # Load OpenL3 model once to avoid reloading
+        self.model = torchopenl3.models.load_audio_embedding_model(
+            input_repr=input_repr,
+            content_type=content_type,
+            embedding_size=embedding_size,
+        )
 
     def forward(self, x):
-        if self.is_afclap:
-            # AFCLAP uses different parameters for embedding extraction
-            features = self.model.get_audio_embedding_from_filelist(
-                x=x, sr=16000, use_tensor=True
-            )
-        else:
-            # Original CLAP embedding extraction
-            # This will now return intermediate features if target_audio_layer was set
-            features = self.model.get_audio_embedding_from_filelist(
-                x=x, use_tensor=True
-            )
-        return features
+        """
+        Extract OpenL3 embeddings from audio file paths.
+
+        Args:
+            x: List of audio file paths
+
+        Returns:
+            torch.Tensor: Embeddings for each audio file
+        """
+        embeddings = []
+
+        for file_path in x:
+            # Load audio file
+            try:
+                audio, sr = librosa.load(file_path, sr=self.sample_rate, mono=True)
+
+                # Extract embeddings using the new API
+                emb, ts = torchopenl3.get_audio_embedding(
+                    audio,
+                    sr,
+                    model=self.model,
+                    center=True,  # Keep default centering
+                    hop_size=0.1,  # Default 10 Hz frame rate
+                )
+
+                # Average over time dimension to get a single embedding per file
+                # emb shape is (1, num_frames, embedding_size)
+                if emb.ndim == 3:
+                    embedding = emb.squeeze(0).mean(
+                        dim=0
+                    )  # Remove batch dim and average over time
+                elif emb.ndim == 2:
+                    embedding = emb.mean(dim=0)  # Average over time
+                else:
+                    embedding = emb.squeeze()
+
+                # Convert to tensor if it's not already
+                if not isinstance(embedding, torch.Tensor):
+                    embedding = torch.tensor(embedding)
+
+                # Move to device
+                embedding = embedding.to(self.device)
+                embeddings.append(embedding)
+
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+                # Return zero embedding as fallback
+                zero_embedding = torch.zeros(self.embedding_size, device=self.device)
+                embeddings.append(zero_embedding)
+
+        return torch.stack(embeddings)
 
     def extract_features(
         self,
@@ -127,9 +151,9 @@ class CLAP(nn.Module):
 
             # Try to find corresponding embedding
             base_dir = os.path.dirname(os.path.dirname(file_path))
-            # Adjust path replacement if intermediate features are stored differently
-            emb_dir = base_dir.replace("/Items", "/embeddings/CLAP/Items").replace(
-                "/Queries", "/embeddings/CLAP/Queries"
+            # Adjust path replacement for OpenL3 embeddings
+            emb_dir = base_dir.replace("/Items", "/embeddings/OpenL3/Items").replace(
+                "/Queries", "/embeddings/OpenL3/Queries"
             )
 
             relative_path = os.path.relpath(file_path, base_dir)
@@ -152,26 +176,13 @@ class CLAP(nn.Module):
             if embedding_path and os.path.exists(embedding_path):
                 item_features[item_id] = torch.load(embedding_path, map_location="cpu")
             else:
-                # self.forward now returns potentially intermediate features
+                # Extract features using OpenL3
                 feature = self.forward([file_path])
-                # The feature shape might be (num_patches, embed_dim) or (1, num_patches, embed_dim)
-                # .mean(dim=0) or .mean(dim=1) might be needed depending on the exact output shape
-                # and if you want to average over the sequence/patch dimension.
-                # If feature is (num_patches, embed_dim), .mean(dim=0) gives (embed_dim,).
-                # If feature is (1, num_patches, embed_dim), .squeeze(0).mean(dim=0) or feature.mean(dim=1)
-                if (
-                    feature.ndim == 3 and feature.shape[0] == 1
-                ):  # Assuming (1, seq_len, dim)
-                    processed_feature = feature.squeeze(0).mean(dim=0)
-                elif feature.ndim == 2:  # Assuming (seq_len, dim)
-                    processed_feature = feature.mean(dim=0)
-                else:  # Fallback or error for unexpected shape
-                    print(
-                        f"Warning: Unexpected feature shape {feature.shape} for item {item_id}. Using mean over last dim if possible."
-                    )
-                    processed_feature = (
-                        feature.mean(dim=-2) if feature.ndim > 1 else feature
-                    )
+                # feature is already processed to be 1D per file
+                if feature.ndim > 1:
+                    processed_feature = feature.squeeze(0)  # Remove batch dimension
+                else:
+                    processed_feature = feature
 
                 item_features[item_id] = processed_feature.detach().cpu()
 
@@ -190,17 +201,10 @@ class CLAP(nn.Module):
                 )
             else:
                 feature = self.forward([file_path])
-                if feature.ndim == 3 and feature.shape[0] == 1:
-                    processed_feature = feature.squeeze(0).mean(dim=0)
-                elif feature.ndim == 2:
-                    processed_feature = feature.mean(dim=0)
+                if feature.ndim > 1:
+                    processed_feature = feature.squeeze(0)  # Remove batch dimension
                 else:
-                    print(
-                        f"Warning: Unexpected feature shape {feature.shape} for query {query_id}. Using mean over last dim if possible."
-                    )
-                    processed_feature = (
-                        feature.mean(dim=-2) if feature.ndim > 1 else feature
-                    )
+                    processed_feature = feature
 
                 query_features[query_id] = processed_feature.detach().cpu()
 
@@ -231,9 +235,32 @@ class CLAP(nn.Module):
 
 
 if __name__ == "__main__":
-    desired_layer = "layers.2.blocks.0"
-    clap_instance = CLAP(model_id=1, target_audio_layer=desired_layer)
+    parser = argparse.ArgumentParser(
+        description="OpenL3 audio embedding extraction and evaluation"
+    )
+    parser.add_argument(
+        "--input_repr",
+        type=str,
+        default="mel256",
+        help="Input representation for OpenL3 model",
+    )
+    parser.add_argument(
+        "--embedding_size",
+        type=int,
+        default=512,
+        help="Embedding size for OpenL3 model",
+    )
+    parser.add_argument(
+        "--content_type", type=str, default="env", help="Content type for OpenL3 model"
+    )
 
-    # clap_instance = CLAP(model_id=1)
+    args = parser.parse_args()
 
-    evaluate_qvim_system(clap_instance.compute_similarities, data_path="data/DEV/")
+    # Initialize OpenL3 model with command line arguments
+    openl3_instance = OpenL3(
+        input_repr=args.input_repr,
+        embedding_size=args.embedding_size,
+        content_type=args.content_type,
+    )
+
+    evaluate_qvim_system(openl3_instance.compute_similarities, data_path="data/DEV/")

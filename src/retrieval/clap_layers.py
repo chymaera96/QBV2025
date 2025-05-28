@@ -13,7 +13,7 @@ from torch import nn
 from tqdm import tqdm
 
 import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
-from src.clap_retrieval.evaluate import evaluate_qvim_system
+from src.retrieval.evaluate import evaluate_qvim_system
 
 
 class CLAP(nn.Module):

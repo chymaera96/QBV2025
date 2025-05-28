@@ -63,3 +63,18 @@ Using CLAP model 1.
 |HTSAT Stage 3 Block 0 | 0.1063 |
 |HTSAT Stage 3 Block 1 | 0.0952 |
 |HTSAT Stage 1 Block 0 | 0.0883 |
+
+### Frozen OpenL3
+
+| Model Name   | MRR (exact match) | NDCG (category match) |
+|--------------|-------------------|-----------------------|
+| random       | 0.0444            | ~0.337                |
+| 2DFT         | 0.1262            | 0.4793                |
+| MN baseline  | 0.2726            | 0.6463                |
+| CLAP 1       | 0.1316            | 0.4906                |
+| mel128 env 512 | 0.088 | 0.4265 |
+| mel256 env 512 | 0.0902 | 0.4262 |
+| linear env 512 | 0.0925 | 0.4281 |
+| mel128 env 6144 | 0.0919 | 0.4275 |
+| mel256 env 6144 | 0.0986 | 0.4280 |
+| linear env 6144 | 0.0861 | 0.4173 |

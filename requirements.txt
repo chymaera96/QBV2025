@@ -15,4 +15,5 @@ notebook
 wandb
 audiomentations
 numpy<2 
+torchopenl3
 -e ./CLAP

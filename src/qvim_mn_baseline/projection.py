@@ -26,10 +26,10 @@ class PaSSTSelectiveFineTune(nn.Module):
         #     # param.requires_grad = True  # You can toggle this
         #     param.requires_grad = False
 
-        # # Remove classifier heads
-        # self.encoder.head = nn.Identity()
-        # self.encoder.head_dist = nn.Identity()
-        # self.encoder.pre_logits = nn.Identity()
+        # Remove classifier heads
+        self.encoder.head = nn.Identity()
+        self.encoder.head_dist = nn.Identity()
+        self.encoder.pre_logits = nn.Identity()
 
         # Projection head
         self.projector = nn.Sequential(

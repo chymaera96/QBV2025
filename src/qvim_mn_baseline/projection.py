@@ -17,7 +17,7 @@ class PaSSTSelectiveFineTune(nn.Module):
             param.requires_grad = False
 
         # Unfreeze the last transformer block
-        for param in self.backbone.net.encoder.blocks[-1].parameters():
+        for param in self.backbone.net.blocks[-1].parameters():
             param.requires_grad = True
 
 

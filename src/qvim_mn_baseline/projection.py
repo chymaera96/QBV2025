@@ -10,21 +10,19 @@ class PaSSTSelectiveFineTune(nn.Module):
     def __init__(self, projection_dim=512):
         super().__init__()
         self.backbone = get_basic_model(mode="embed_only")
-        self.encoder = self.backbone.net  # This is the PaSST module
         # self.mel = self.backbone.mel
 
-        # Freeze all but the last transformer block
-        for i, block in enumerate(self.encoder.blocks):
-            for param in block.parameters():
-                # param.requires_grad = (i == len(self.encoder.blocks) - 1)
-                param.requires_grad = False  # Freeze all blocks
-
-        # Freeze patch embedding
-        for param in self.encoder.patch_embed.parameters():
+        # Freeze all parameters first
+        for param in self.backbone.net.parameters():
             param.requires_grad = False
 
+        # Unfreeze the last transformer block
+        for param in self.backbone.net.encoder.blocks[-1].parameters():
+            param.requires_grad = True
+
+
         # Final LayerNorm (keep trainable or not)
-        for param in self.encoder.norm.parameters():
+        for param in self.backbone.net.norm.parameters():
             # param.requires_grad = True  # You can toggle this
             param.requires_grad = False
 

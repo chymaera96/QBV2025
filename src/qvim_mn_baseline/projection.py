@@ -23,8 +23,8 @@ class PaSSTSelectiveFineTune(nn.Module):
 
         # Final LayerNorm (keep trainable or not)
         for param in self.backbone.net.norm.parameters():
-            # param.requires_grad = True  # You can toggle this
-            param.requires_grad = False
+            param.requires_grad = True  # You can toggle this
+            # param.requires_grad = False
 
         # Remove classifier heads
         self.backbone.net.head = nn.Identity()

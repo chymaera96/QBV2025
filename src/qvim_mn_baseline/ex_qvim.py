@@ -19,7 +19,7 @@ from wandb import Settings
 from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.projection import PaSSTWithProjection
+from qvim_mn_baseline.projection import PaSSTSelectiveFineTune
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
 
 class QVIMModule(pl.LightningModule):
@@ -45,7 +45,7 @@ class QVIMModule(pl.LightningModule):
         #     fmax_aug_range=config.fmax_aug_range
         # )
 
-        self.encoder = PaSSTWithProjection(projection_dim=config.proj_dim)
+        self.encoder = PaSSTSelectiveFineTune(projection_dim=config.proj_dim)
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
 

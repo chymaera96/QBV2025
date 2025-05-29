@@ -1,8 +1,8 @@
 # Script to check shape of features from the PaSST model
 import torch
-from qvim_mn_baseline.projection import PaSSTWithProjection
+from qvim_mn_baseline.projection import PaSSTSelectiveFineTune
 
-model = PaSSTWithProjection()
+model = PaSSTSelectiveFineTune(projection_dim=512)
 x = torch.randn(3, 320000)
-y = model.backbone(x)  # [B, N, 768]
+y = model.encoder(x)  # [B, N, 768]
 print(f"Output shape from backbone: {y.shape}")  # Should be [3, N, 768]

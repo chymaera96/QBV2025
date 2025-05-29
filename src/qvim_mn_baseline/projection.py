@@ -29,9 +29,9 @@ class PaSSTSelectiveFineTune(nn.Module):
             param.requires_grad = False
 
         # Remove classifier heads
-        self.backbone.head = nn.Identity()
-        self.backbone.head_dist = nn.Identity()
-        self.backbone.pre_logits = nn.Identity()
+        self.encoder.head = nn.Identity()
+        self.encoder.head_dist = nn.Identity()
+        self.encoder.pre_logits = nn.Identity()
 
         # Projection head
         self.projector = nn.Sequential(

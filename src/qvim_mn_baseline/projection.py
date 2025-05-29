@@ -16,7 +16,8 @@ class PaSSTSelectiveFineTune(nn.Module):
         # Freeze all but the last transformer block
         for i, block in enumerate(self.encoder.blocks):
             for param in block.parameters():
-                param.requires_grad = (i == len(self.encoder.blocks) - 1)
+                # param.requires_grad = (i == len(self.encoder.blocks) - 1)
+                param.requires_grad = False  # Freeze all blocks
 
         # Freeze patch embedding
         for param in self.encoder.patch_embed.parameters():
@@ -24,7 +25,8 @@ class PaSSTSelectiveFineTune(nn.Module):
 
         # Final LayerNorm (keep trainable or not)
         for param in self.encoder.norm.parameters():
-            param.requires_grad = True  # You can toggle this
+            # param.requires_grad = True  # You can toggle this
+            param.requires_grad = False
 
         # Remove classifier heads
         self.backbone.head = nn.Identity()

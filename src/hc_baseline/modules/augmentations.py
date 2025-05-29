@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
-from audiomentations import PitchShift, Gain, TimeStretch, Shift
+from audiomentations import PitchShift, Gain, TimeStretch, Shift, AddGaussianNoise
 
 from hc_baseline.modules.fx_util import FrameLevelCorruption
 
@@ -13,13 +13,14 @@ class Augment(nn.Module):
         self.max_transforms = max_transforms
         self.sample_rate = sample_rate
         self.train_transform_options = [
-            Shift(min_shift=-0.2, max_shift=0.2, p=1.0),
+            Shift(min_shift=-0.3, max_shift=0.3, p=1.0),
             Gain(min_gain_db=-10, max_gain_db=10, p=1.0),
-            # PitchShift(min_semitones=-3, max_semitones=3, p=1.0),
-            # TimeStretch(min_rate=0.8, max_rate=1.2, p=1.0),
+            PitchShift(min_semitones=-3, max_semitones=3, p=1.0),
+            TimeStretch(min_rate=0.8, max_rate=1.2, p=1.0),
+            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
             # FrameLevelCorruption(remove_prob=0.0, silence_prob=0.0),
-            # FrameLevelCorruption(duplicate_prob=0.0, silence_prob=0.0),
-            # FrameLevelCorruption(duplicate_prob=0.0, remove_prob=0.0),
+            FrameLevelCorruption(duplicate_prob=0.0, silence_prob=0.0),
+            FrameLevelCorruption(duplicate_prob=0.0, remove_prob=0.0),
         ]
 
 

@@ -9,7 +9,7 @@ from hear21passt.base import get_basic_model
 class PaSSTSelectiveFineTune(nn.Module):
     def __init__(self, projection_dim=512):
         super().__init__()
-        self.backbone = get_basic_model(mode="all")
+        self.backbone = get_basic_model(mode="embed_only")
         self.encoder = self.backbone.net  # This is the PaSST module
         # self.mel = self.backbone.mel
 

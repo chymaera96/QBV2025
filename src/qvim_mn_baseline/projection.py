@@ -11,7 +11,7 @@ class PaSSTSelectiveFineTune(nn.Module):
         super().__init__()
         self.backbone = get_basic_model(mode="all")
         self.encoder = self.backbone.net  # This is the PaSST module
-        self.mel = self.backbone.mel
+        # self.mel = self.backbone.mel
 
         # Freeze all but the last transformer block
         for i, block in enumerate(self.encoder.blocks):
@@ -44,7 +44,8 @@ class PaSSTSelectiveFineTune(nn.Module):
 
     def forward(self, x):
         assert x.shape[1] == 320000, f"Expected input shape [B, 320000], got {x.shape}"
-        X = self.mel(x).unsqueeze(1)
-        logits, features = self.encoder(X)          # [B, N, 768]
+        # X = self.mel(x).unsqueeze(1)
+        # logits, features = self.encoder(X)    
+        logits, features = self.backbone(x)      
         # pooled = features.mean(dim=1)       # global avg pooling
         return self.projector(features)       # [B, projection_dim]

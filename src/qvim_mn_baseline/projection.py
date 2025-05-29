@@ -16,15 +16,15 @@ class PaSSTSelectiveFineTune(nn.Module):
         for param in self.backbone.net.parameters():
             param.requires_grad = False
 
-        # # Unfreeze the last transformer block
-        # for param in self.backbone.net.encoder.blocks[-1].parameters():
-        #     param.requires_grad = True
+        # Unfreeze the last transformer block
+        for param in self.backbone.net.encoder.blocks[-1].parameters():
+            param.requires_grad = True
 
 
-        # # Final LayerNorm (keep trainable or not)
-        # for param in self.backbone.net.norm.parameters():
-        #     # param.requires_grad = True  # You can toggle this
-        #     param.requires_grad = False
+        # Final LayerNorm (keep trainable or not)
+        for param in self.backbone.net.norm.parameters():
+            # param.requires_grad = True  # You can toggle this
+            param.requires_grad = False
 
         # Remove classifier heads
         self.backbone.net.head = nn.Identity()

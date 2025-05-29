@@ -16,6 +16,7 @@ class PaSSTWithProjection(nn.Module):
         self.projector = nn.Sequential(
             nn.Linear(768, 1024),
             nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(1024, projection_dim)
         )
 

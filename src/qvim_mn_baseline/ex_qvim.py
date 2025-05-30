@@ -330,7 +330,7 @@ if __name__ == '__main__':
                         help="Total number of training epochs.")
     parser.add_argument('--weight_decay', type=float, default=0.,
                         help="L2 weight regularization to prevent overfitting.")
-    parser.add_argument('--max_lr', type=float, default=1.0e-4,
+    parser.add_argument('--max_lr', type=float, default=8.5e-5,
                         help="Maximum learning rate.")
     parser.add_argument('--min_lr', type=float, default=1.0e-5,
                         help="Final learning rate at the end of training.")

@@ -182,35 +182,40 @@ class QVIMModule(pl.LightningModule):
 
 
     def lr_scheduler_step(self, batch_idx):
-
         steps_per_epoch = self.trainer.num_training_batches
-
-        min_lr = self.config.min_lr
-        max_lr = self.config.max_lr
         current_step = self.current_epoch * steps_per_epoch + batch_idx
- 
-        # modified to calculate step based on epoch proportion... 
-        warmup_epochs = self.config.n_epochs * self.config.warmup_percent
-        rampdown_epochs = self.config.n_epochs * self.config.rampdown_percent
-        warmup_steps = int(warmup_epochs * steps_per_epoch)
-        total_steps = int((warmup_epochs + rampdown_epochs) * steps_per_epoch)
-        decay_steps = total_steps - warmup_steps
 
-        if current_step < warmup_steps:
-            # Linear warmup
-            lr = min_lr + (max_lr - min_lr) * (current_step / warmup_steps)
-        elif current_step < total_steps:
-            # Cosine decay
-            decay_progress = (current_step - warmup_steps) / decay_steps
-            lr = min_lr + (max_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * decay_progress))
+        warmup_steps = self.config.warmup_steps
+        if warmup_steps is None:
+            warmup_epochs = self.config.n_epochs * self.config.warmup_percent
+            warmup_steps = int(warmup_epochs * steps_per_epoch)
+
+        rampdown_epochs = self.config.n_epochs * self.config.rampdown_percent
+        total_decay_steps = int((rampdown_epochs * steps_per_epoch))
+
+        # If no warmup
+        if warmup_steps == 0:
+            lr = self.config.max_lr
+            if current_step > total_decay_steps:
+                lr = self.config.min_lr
+            else:
+                decay_progress = current_step / total_decay_steps
+                lr = self.config.min_lr + (self.config.max_lr - self.config.min_lr) * 0.5 * (1 + math.cos(math.pi * decay_progress))
+
+        # If using warmup
+        elif current_step < warmup_steps:
+            lr = self.config.min_lr + (self.config.max_lr - self.config.min_lr) * (current_step / warmup_steps)
+        elif current_step < warmup_steps + total_decay_steps:
+            decay_progress = (current_step - warmup_steps) / total_decay_steps
+            lr = self.config.min_lr + (self.config.max_lr - self.config.min_lr) * 0.5 * (1 + math.cos(math.pi * decay_progress))
         else:
-            # Constant learning rate
-            lr = min_lr
+            lr = self.config.min_lr
 
         for param_group in self.optimizers(use_pl_optimizer=False).param_groups:
             param_group['lr'] = lr
 
         self.log('train/lr', lr, sync_dist=True)
+
 
 
 def train(config):
@@ -335,6 +340,8 @@ if __name__ == '__main__':
     #                    help="Duration (in epochs) for learning rate ramp-down.")
     parser.add_argument('--warmup_percent', type=float, default=0.05, # modified to use percent
                     help="Fraction of total epochs for warmup (e.g., default = 0.1 = 10%)")
+    parser.add_argument('--warmup_steps', type=int, default=None,
+                        help="Number of steps for learning rate warmup. If None, use warmup_percent instead.")
     parser.add_argument('--rampdown_percent', type=float, default=0.8, # modified to use percent
                     help="Fraction of total epochs for cosine rampdown (e.g., default = 0.8 = 80%)")
     parser.add_argument('--initial_tau', type=float, default=0.1,

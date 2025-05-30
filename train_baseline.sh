@@ -4,5 +4,5 @@ python src/qvim_mn_baseline/ex_qvim.py --num_gpus 1 --precision bf16-mixed \
                                         --proj_dim 128 \
                                         --n_epochs 50 \
                                         --warmup_steps 0 \
-                                        --id passt_2_2
+                                        --id passt_2_3
 

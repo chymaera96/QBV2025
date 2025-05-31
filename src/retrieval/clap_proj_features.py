@@ -9,12 +9,37 @@ import laion_clap
 import librosa
 import numpy as np
 import torch
+import torch.nn as nn
 from scipy import interpolate
 from torch import nn
 from tqdm import tqdm
 
 import AFCLAP.my_laion_clap.CLAP.src.laion_clap as af_laion_clap
+import wandb
 from src.retrieval.evaluate import evaluate_qvim_system
+
+
+class MLPProjection(nn.Module):
+    """MLP projection layer to match the one used in training"""
+
+    def __init__(self, input_dim, hidden_dims, output_dim, dropout_rate=0.2):
+        super().__init__()
+        layers = []
+        current_dim = input_dim
+
+        # Add hidden layers if they exist
+        for h_dim in hidden_dims:
+            layers.append(nn.Linear(current_dim, h_dim))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout_rate))
+            current_dim = h_dim
+
+        # Output layer
+        layers.append(nn.Linear(current_dim, output_dim))
+        self.projection = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.projection(x)
 
 
 class CLAP(nn.Module):
@@ -24,12 +49,15 @@ class CLAP(nn.Module):
         target_audio_layer: Optional[str] = None,
         use_acoustic_features=True,
         use_pitch_features=True,
+        use_mlp_projection=False,
+        wandb_run_path=None,
     ):
         super(CLAP, self).__init__()
 
         self.is_afclap = False
         self.use_acoustic_features = use_acoustic_features
         self.use_pitch_features = use_pitch_features
+        self.use_mlp_projection = use_mlp_projection
 
         if model_id == "AF":
             self.is_afclap = True
@@ -58,6 +86,101 @@ class CLAP(nn.Module):
             self.model.load_ckpt(model_id=model_id)
 
         self.model.eval()
+
+        # Load MLP projection if specified
+        self.mlp_projection = None
+        if use_mlp_projection and wandb_run_path:
+            self.mlp_projection = self._load_mlp_projection(wandb_run_path)
+
+    def _load_mlp_projection(self, run_path):
+        """Load the MLP projection from wandb artifact"""
+        try:
+            api = wandb.Api()
+            run = api.run(run_path)
+
+            artifacts = run.logged_artifacts()
+            if not artifacts:
+                raise ValueError(f"No artifacts found for run {run_path}")
+
+            latest_artifact = max(artifacts, key=lambda x: x.created_at)
+            artifact_dir = latest_artifact.download()
+
+            # List all files and find the .pt file
+            files = os.listdir(artifact_dir)
+            print(f"Available files: {files}")
+
+            # Find any .pt file in the directory
+            model_path = None
+            for filename in files:
+                if filename.endswith(".pt"):
+                    model_path = os.path.join(artifact_dir, filename)
+                    print(f"Found model file: {filename}")
+                    break
+
+            if model_path is None:
+                raise FileNotFoundError(
+                    f"No .pt model file found. Available files: {files}"
+                )
+
+            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+            print(f"Loaded checkpoint keys: {checkpoint.keys()}")
+
+            # Get config from the run
+            config = run.config
+            print(f"Run config: {config}")
+
+            # Extract MLP parameters from config
+            input_dim = 512  # CLAP default
+            if self.is_afclap:
+                input_dim = 2048  # AFCLAP has different dimension
+
+            hidden_dims = config.get("hidden_dims", [])  # This might be empty!
+            output_dim = config.get("projection_output_dim", 128)
+            dropout_rate = config.get("dropout_rate", 0.2)
+
+            print(
+                f"Creating MLP with: input_dim={input_dim}, hidden_dims={hidden_dims}, output_dim={output_dim}"
+            )
+
+            # Create MLP with correct architecture
+            mlp = MLPProjection(input_dim, hidden_dims, output_dim, dropout_rate)
+
+            # Get the state dict and rename keys
+            if "model_state_dict" in checkpoint:
+                state_dict = checkpoint["model_state_dict"]
+            else:
+                state_dict = checkpoint
+
+            # Rename keys from 'mlp.*' to 'projection.*'
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                if key.startswith("mlp."):
+                    new_key = key.replace("mlp.", "projection.")
+                    new_state_dict[new_key] = value
+                else:
+                    new_state_dict[key] = value
+
+            print(f"Original keys: {list(state_dict.keys())}")
+            print(f"Renamed keys: {list(new_state_dict.keys())}")
+
+            # Load the renamed state dict
+            mlp.load_state_dict(new_state_dict)
+
+            mlp.eval()
+            mlp.to("cuda" if torch.cuda.is_available() else "cpu")
+
+            for param in mlp.parameters():
+                param.requires_grad = False
+
+            print(f"Successfully loaded MLP projection from {run_path}")
+            return mlp
+
+        except Exception as e:
+            print(f"Error loading MLP projection: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return None
 
     def extract_acoustic_features(self, audio_path, target_length=100):
         """
@@ -180,19 +303,36 @@ class CLAP(nn.Module):
 
     def forward(self, x):
         if self.is_afclap:
-            # AFCLAP uses different parameters for embedding extraction
             clap_features = self.model.get_audio_embedding_from_filelist(
                 x=x, sr=16000, use_tensor=True
             )
         else:
-            # Original CLAP embedding extraction
-            # This will now return intermediate features if target_audio_layer was set
             clap_features = self.model.get_audio_embedding_from_filelist(
                 x=x, use_tensor=True
             )
 
+        # Handle different dimensionalities and pool to 2D
+        if clap_features.ndim == 3:  # (batch, seq_len, dim)
+            clap_features_pooled = clap_features.mean(dim=1)  # (batch, dim)
+        elif clap_features.ndim == 2:  # (batch, dim) or (seq_len, dim)
+            if clap_features.shape[0] == len(x):  # (batch, dim)
+                clap_features_pooled = clap_features
+            else:  # (seq_len, dim) - single item
+                clap_features_pooled = clap_features.mean(dim=0, keepdim=True)
+        else:
+            clap_features_pooled = clap_features
+
+        # Ensure batch dimension matches
+        if clap_features_pooled.shape[0] != len(x):
+            clap_features_pooled = clap_features_pooled.unsqueeze(0).repeat(len(x), 1)
+
+        # Apply MLP projection to CLAP features FIRST (before acoustic features)
+        if self.mlp_projection is not None:
+            clap_features_pooled = self.mlp_projection(clap_features_pooled)
+
+        # If not using acoustic features, return the projected CLAP features
         if not self.use_acoustic_features:
-            return clap_features
+            return clap_features_pooled
 
         # Extract acoustic features for each audio file
         acoustic_features_list = []
@@ -202,59 +342,33 @@ class CLAP(nn.Module):
 
         # Stack acoustic features
         acoustic_features_batch = torch.stack(acoustic_features_list)
+        acoustic_features_batch = acoustic_features_batch.to(
+            clap_features_pooled.device
+        )
 
-        # Move to same device as CLAP features
-        acoustic_features_batch = acoustic_features_batch.to(clap_features.device)
-
-        # Handle different dimensionalities of CLAP features
-        if clap_features.ndim == 3:  # (batch, seq_len, dim)
-            # Average over sequence dimension for CLAP features
-            clap_features_pooled = clap_features.mean(dim=1)  # (batch, dim)
-        elif clap_features.ndim == 2:  # (batch, dim) or (seq_len, dim)
-            if clap_features.shape[0] == len(x):  # (batch, dim)
-                clap_features_pooled = clap_features
-            else:  # (seq_len, dim) - single item
-                clap_features_pooled = clap_features.mean(
-                    dim=0, keepdim=True
-                )  # (1, dim)
-        else:
-            clap_features_pooled = clap_features
-
-        # Ensure batch dimension matches
-        if clap_features_pooled.shape[0] != len(x):
-            # Handle case where CLAP returns single tensor for batch
-            clap_features_pooled = clap_features_pooled.unsqueeze(0).repeat(len(x), 1)
-
-        # Normalize each feature component separately to ensure equal contribution
-        # CLAP features are typically already normalized, but let's ensure consistency
+        # Normalize each feature component separately
         clap_features_norm = torch.nn.functional.normalize(
             clap_features_pooled, p=2, dim=-1
         )
 
         features_to_concat = [clap_features_norm]
 
-        # Split acoustic features based on what was extracted
+        # Process acoustic features as before...
         if self.use_pitch_features:
-            # RMS and pitch features
-            rms_features = acoustic_features_batch[:, :100]  # First 100 dims
-            pitch_features = acoustic_features_batch[:, 100:]  # Last 100 dims
-
-            # L2 normalize each component separately
+            rms_features = acoustic_features_batch[:, :100]
+            pitch_features = acoustic_features_batch[:, 100:]
             rms_features_norm = torch.nn.functional.normalize(rms_features, p=2, dim=-1)
             pitch_features_norm = torch.nn.functional.normalize(
                 pitch_features, p=2, dim=-1
             )
-
             features_to_concat.extend([rms_features_norm, pitch_features_norm])
         else:
-            # Only RMS features
-            rms_features = acoustic_features_batch  # All 100 dims are RMS
+            rms_features = acoustic_features_batch
             rms_features_norm = torch.nn.functional.normalize(rms_features, p=2, dim=-1)
             features_to_concat.append(rms_features_norm)
 
         # Concatenate normalized features
         combined_features = torch.cat(features_to_concat, dim=-1)
-
         return combined_features
 
     def extract_features(
@@ -427,8 +541,10 @@ class CLAP(nn.Module):
 if __name__ == "__main__":
     clap_instance = CLAP(
         model_id=1,
-        use_acoustic_features=True,
-        use_pitch_features=False,
+        use_acoustic_features=False,
+        use_pitch_features=True,
+        use_mlp_projection=True,
+        wandb_run_path="cplachouras/qvim/ryodvcu3",
     )
 
     evaluate_qvim_system(clap_instance.compute_similarities, data_path="data/DEV/")

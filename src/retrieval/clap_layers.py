@@ -1,7 +1,7 @@
 import glob
-import io  # Add this
+import io
 import os
-import re  # Add this
+import re
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))

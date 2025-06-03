@@ -15,7 +15,7 @@ import wandb
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
 
-from .dataset import VimSketch
+from .dataset import UnifiedVimSketch
 from .evaluate import evaluate_qvim_system
 from .features import CLAPFeatureExtractor, OpenL3FeatureExtractor
 
@@ -37,81 +37,46 @@ class ProjectionMLP(nn.Module):
         return self.mlp(x)
 
 
-class ContrastiveLoss(nn.Module):
-    def __init__(self, temperature=0.1):  # Increased temperature
-        super(ContrastiveLoss, self).__init__()
-        self.temperature = temperature
-        self.eps = 1e-8
-
-    def forward(self, query_embeddings, reference_embeddings, query_ids, reference_ids):
-        # Normalize embeddings
-        query_embeddings = torch.nn.functional.normalize(
-            query_embeddings, dim=1, eps=self.eps
-        )
-        reference_embeddings = torch.nn.functional.normalize(
-            reference_embeddings, dim=1, eps=self.eps
-        )
-
-        # Compute similarity matrix: [batch_size, batch_size]
-        similarity_matrix = (
-            torch.matmul(query_embeddings, reference_embeddings.T) / self.temperature
-        )
-
-        # In your dataset, each query at index i has its positive reference at index i
-        # So the diagonal represents positive pairs
-        batch_size = similarity_matrix.size(0)
-        labels = torch.arange(batch_size, device=similarity_matrix.device)
-
-        # InfoNCE loss using cross-entropy
-        loss = torch.nn.functional.cross_entropy(similarity_matrix, labels)
-
-        return loss
-
-
-class CategoryContrastiveLoss(nn.Module):
+class UnifiedContrastiveLoss(nn.Module):
     def __init__(self, temperature=0.07):
-        super(CategoryContrastiveLoss, self).__init__()
+        super(UnifiedContrastiveLoss, self).__init__()
         self.temperature = temperature
         self.eps = 1e-8
 
-    def forward(self, query_embeddings, reference_embeddings, category_indices):
+    def forward(self, embeddings, category_indices):
         # Normalize embeddings
-        query_embeddings = torch.nn.functional.normalize(
-            query_embeddings, dim=1, eps=self.eps
-        )
-        reference_embeddings = torch.nn.functional.normalize(
-            reference_embeddings, dim=1, eps=self.eps
-        )
+        embeddings = torch.nn.functional.normalize(embeddings, dim=1, eps=self.eps)
 
-        batch_size = query_embeddings.size(0)
-        device = query_embeddings.device
+        batch_size = embeddings.size(0)
 
-        # Compute similarity matrix
-        sim_matrix = (
-            torch.matmul(query_embeddings, reference_embeddings.T) / self.temperature
-        )
+        # Compute similarity matrix between all pairs
+        sim_matrix = torch.matmul(embeddings, embeddings.T) / self.temperature
 
+        # Create positive mask: same category = positive pair
+        category_indices = category_indices.unsqueeze(1)
+        positive_mask = (category_indices == category_indices.T).float()
+
+        # Remove self-similarity (diagonal)
+        positive_mask.fill_diagonal_(0)
+
+        # Supervised contrastive loss
+        exp_sim = torch.exp(sim_matrix)
+
+        # For each sample, compute the loss
         total_loss = 0.0
         valid_samples = 0
 
         for i in range(batch_size):
-            query_category = category_indices[i]
+            pos_mask_i = positive_mask[i]
 
-            # Find all positive references (same category)
-            positive_mask = category_indices == query_category
+            if pos_mask_i.sum() > 0:  # Only if there are positive pairs
+                pos_exp_sum = torch.sum(exp_sim[i] * pos_mask_i)
+                all_exp_sum = torch.sum(exp_sim[i]) - exp_sim[i, i]  # Exclude self
 
-            if positive_mask.sum() > 0:
-                # Get similarities for this query
-                query_sims = sim_matrix[i]  # [batch_size]
-
-                # Compute InfoNCE-style loss
-                exp_sims = torch.exp(query_sims)
-                pos_exp_sum = torch.sum(exp_sims * positive_mask.float())
-                all_exp_sum = torch.sum(exp_sims)
-
-                loss_i = -torch.log(pos_exp_sum / all_exp_sum)
-                total_loss += loss_i
-                valid_samples += 1
+                if all_exp_sum > 0:
+                    loss_i = -torch.log(pos_exp_sum / all_exp_sum)
+                    total_loss += loss_i
+                    valid_samples += 1
 
         return total_loss / max(valid_samples, 1)
 
@@ -165,6 +130,60 @@ def train_epoch(
             wandb.log({"batch/loss": loss.item()})
 
         # Add explicit memory cleanup every few batches
+        if batch_idx % 10 == 0:
+            torch.cuda.empty_cache()
+
+    epoch_loss = running_loss / len(dataloader.dataset)
+    return epoch_loss
+
+
+def train_epoch_unified(
+    model, dataloader, criterion, optimizer, device, epoch=0, use_wandb=False
+):
+    model.train()
+    running_loss = 0.0
+
+    progress_bar = tqdm(dataloader, desc=f"Epoch {epoch + 1} Training")
+    for batch_idx, batch in enumerate(progress_bar):
+        features = batch["features"].to(device)
+        category_indices = batch["category_idx"].to(device)
+
+        # Check for NaN in inputs
+        if torch.isnan(features).any():
+            print(f"NaN detected in input features at batch {batch_idx}")
+            continue
+
+        optimizer.zero_grad()
+
+        # Get embeddings from the projection MLP
+        embeddings = model(features)
+
+        # Check for NaN in embeddings
+        if torch.isnan(embeddings).any():
+            print(f"NaN detected in embeddings at batch {batch_idx}")
+            continue
+
+        # Unified contrastive loss
+        loss = criterion(embeddings, category_indices)
+
+        if torch.isnan(loss):
+            print(f"NaN loss at batch {batch_idx}")
+            continue
+
+        loss.backward()
+
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        optimizer.step()
+
+        running_loss += loss.item() * features.size(0)
+        progress_bar.set_postfix(loss=loss.item())
+
+        if use_wandb:
+            wandb.log({"batch/loss": loss.item()})
+
+        # Memory cleanup
         if batch_idx % 10 == 0:
             torch.cuda.empty_cache()
 
@@ -374,7 +393,7 @@ def main(args):
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
-    train_dataset = VimSketch(
+    train_dataset = UnifiedVimSketch(
         root_dir=args.data_dir,
         sample_rate=sample_rate,
         feature_extractor=feature_extractor,
@@ -400,7 +419,7 @@ def main(args):
     ).to(device)
 
     # Replace the criterion initialization
-    criterion = CategoryContrastiveLoss(temperature=args.temperature)
+    criterion = UnifiedContrastiveLoss(temperature=args.temperature)
 
     optimizer = optim.AdamW(
         model.parameters(),
@@ -441,7 +460,7 @@ def main(args):
     for epoch in range(args.num_epochs):
         print(f"\nEpoch {epoch + 1}/{args.num_epochs}")
 
-        epoch_loss = train_epoch(
+        epoch_loss = train_epoch_unified(
             model, train_loader, criterion, optimizer, device, epoch, args.use_wandb
         )
         print(f"Training Loss: {epoch_loss:.4f}")

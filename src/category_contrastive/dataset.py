@@ -28,69 +28,85 @@ class VimSketch(torch.utils.data.Dataset):
             Augment(sample_rate, max_transforms) if self.augment_mode else None
         )
         random.seed(seed)
-        np.random.seed(seed)  # Ensure numpy's random choices are also seeded
+        np.random.seed(seed)
 
-        # Load reference files
+        # Load reference files and extract categories
         ref_df = pd.read_csv(
             os.path.join(root_dir, "reference_file_names.csv"),
             sep="\t",
             header=None,
             names=["filename"],
         )
-        ref_df["reference_id"] = ref_df["filename"].apply(
-            lambda x: "_".join(x.split("_")[1:])
-        )
-        self.references = {
-            row["reference_id"]: os.path.join(
-                self.root_dir, "references", row["filename"]
-            )
-            for _, row in ref_df.iterrows()
-        }
-        self.all_reference_ids = list(self.references.keys())
-        if not self.all_reference_ids:
-            raise ValueError("No reference files found or processed.")
 
-        # Load query files
+        # Extract category from reference filename (number1 from number1_number2Title)
+        ref_df["category"] = ref_df["filename"].apply(lambda x: x.split("_")[0])
+
+        self.references = {}
+        self.category_to_reference = {}
+
+        for _, row in ref_df.iterrows():
+            ref_path = os.path.join(self.root_dir, "references", row["filename"])
+            ref_id = "_".join(row["filename"].split("_")[1:])
+            category = row["category"]
+
+            self.references[ref_id] = ref_path
+            self.category_to_reference[category] = {
+                "ref_id": ref_id,
+                "ref_path": ref_path,
+            }
+
+        # Load query files and map to categories
         query_df = pd.read_csv(
             os.path.join(root_dir, "vocal_imitation_file_names.csv"),
             sep="\t",
             header=None,
             names=["filename"],
         )
-        query_df["reference_id"] = query_df["filename"].apply(
-            lambda x: "_".join(x.split("_")[1:])
-        )
 
         self.queries = []
         for _, row in query_df.iterrows():
-            if row["reference_id"] in self.references:
-                self.queries.append(
-                    {
-                        "query_path": os.path.join(
-                            self.root_dir, "vocal_imitations", row["filename"]
-                        ),
-                        "query_id": row["filename"],
-                        "positive_ref_id": row["reference_id"],
-                    }
-                )
-            # else:
-            # Consider logging a warning if a query's positive reference is missing
-            # print(f"Warning: Positive reference {row['reference_id']} for query {row['filename']} not found.")
+            # Extract category from query filename (number2 from number1_number2Title)
+            filename_parts = row["filename"].split("_")
+            if len(filename_parts) >= 2:
+                query_category = filename_parts[1][:3]  # number2 becomes the category
+
+                # Check if this category exists in our references
+                if query_category in self.category_to_reference:
+                    self.queries.append(
+                        {
+                            "query_path": os.path.join(
+                                self.root_dir, "vocal_imitations", row["filename"]
+                            ),
+                            "query_id": row["filename"],
+                            "category": query_category,
+                            "positive_ref_id": self.category_to_reference[
+                                query_category
+                            ]["ref_id"],
+                            "positive_ref_path": self.category_to_reference[
+                                query_category
+                            ]["ref_path"],
+                        }
+                    )
 
         if not self.queries:
             raise ValueError(
-                "No query-positive pairs found. Check dataset integrity and paths."
+                "No query-category pairs found. Check dataset integrity and paths."
             )
 
+        # Create category mappings for contrastive learning
+        self.categories = list(set(query["category"] for query in self.queries))
+        self.category_to_idx = {cat: idx for idx, cat in enumerate(self.categories)}
+
+        print(
+            f"Found {len(self.categories)} categories with {len(self.queries)} total queries"
+        )
         self.cached_files = {}
 
     def load_audio(self, path):
         if path not in self.cached_files:
             audio, sr = librosa.load(path, sr=self.sample_rate, mono=True)
             self.cached_files[path] = audio
-        return self.cached_files[
-            path
-        ].copy()  # Return a copy to prevent modification of cached audio
+        return self.cached_files[path].copy()
 
     def __len__(self):
         return len(self.queries)
@@ -99,8 +115,7 @@ class VimSketch(torch.utils.data.Dataset):
         query_info = self.queries[index]
 
         anchor_audio_path = query_info["query_path"]
-        positive_ref_id = query_info["positive_ref_id"]
-        positive_audio_path = self.references[positive_ref_id]
+        positive_audio_path = query_info["positive_ref_path"]
 
         # Load and process audio
         anchor_audio_np = self.load_audio(anchor_audio_path)
@@ -122,10 +137,12 @@ class VimSketch(torch.utils.data.Dataset):
             positive_feat = torch.tensor(positive_audio_np).float()
 
         return {
-            "query_features": anchor_feat,  # Changed key name to match training loop
-            "reference_features": positive_feat,  # Changed key name to match training loop
+            "query_features": anchor_feat,
+            "reference_features": positive_feat,
             "query_id": query_info["query_id"],
-            "reference_id": positive_ref_id,  # Changed key name to match training loop
+            "reference_id": query_info["positive_ref_id"],
+            "category": query_info["category"],
+            "category_idx": self.category_to_idx[query_info["category"]],
         }
 
 

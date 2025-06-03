@@ -9,6 +9,7 @@ from ced_model.feature_extraction_ced import (
     CedFeatureExtractor as HFCedFeatureExtractor,
 )
 from ced_model.modeling_ced import CedForAudioClassification
+import json
 
 # Add project root to Python path if needed
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -175,9 +176,26 @@ class CedFeatureExtractor:
         self.model_name = model_name
         self.sample_rate = 16000  # CED expects 16kHz audio
 
-        # Load the feature extractor and model
-        self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
-        self.model = CedForAudioClassification.from_pretrained(model_name).to(device)
+        try:
+            # Load the feature extractor and model
+            self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+            self.model = CedForAudioClassification.from_pretrained(model_name).to(self.device)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Error loading model {model_name}: {e}")
+            print("Trying to clear cache and reload...")
+            
+            # Clear the cached files and try again
+            import shutil
+            from pathlib import Path
+            
+            cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{model_name.replace('/', '--')}"
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+                print(f"Cleared cache directory: {cache_dir}")
+            
+            # Try loading again
+            self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+            self.model = CedForAudioClassification.from_pretrained(model_name).to(self.device)
 
         # Set model to eval mode and freeze parameters
         self.model.eval()

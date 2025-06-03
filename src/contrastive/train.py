@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
 from .dataset import VimSketch
 from .evaluate import evaluate_qvim_system
-from .features import CLAPFeatureExtractor, OpenL3FeatureExtractor
+from .features import CedFeatureExtractor, CLAPFeatureExtractor, OpenL3FeatureExtractor
 
 
 class ProjectionMLP(nn.Module):
@@ -175,6 +175,16 @@ def validate_with_evaluate(
                     feature = feature_extractor(audio).unsqueeze(
                         0
                     )  # Add batch dimension
+                elif encoder_type == "ced":
+                    # Get CED embeddings
+                    import librosa
+
+                    audio, sr = librosa.load(
+                        file_path, sr=feature_extractor.sample_rate, mono=True
+                    )
+                    feature = feature_extractor(audio).unsqueeze(
+                        0
+                    )  # Add batch dimension
 
                 # Project through trained MLP
                 feature = feature.to(device)
@@ -203,6 +213,16 @@ def validate_with_evaluate(
                         )
                 elif encoder_type == "openl3":
                     # Get OpenL3 embeddings
+                    import librosa
+
+                    audio, sr = librosa.load(
+                        file_path, sr=feature_extractor.sample_rate, mono=True
+                    )
+                    feature = feature_extractor(audio).unsqueeze(
+                        0
+                    )  # Add batch dimension
+                elif encoder_type == "ced":
+                    # Get CED embeddings
                     import librosa
 
                     audio, sr = librosa.load(
@@ -265,6 +285,8 @@ def main(args):
                 f"emb-{args.openl3_embedding_size}",
             ]
         )
+    elif args.encoder_type == "ced":
+        model_name_parts.append(f"ced-{args.ced_model_name.split('/')[-1]}")
 
     model_name_parts.extend(
         [
@@ -338,6 +360,20 @@ def main(args):
             param.requires_grad = False
         feature_dim = args.openl3_embedding_size  # Use the actual embedding size
         sample_rate = 48000
+    elif args.encoder_type == "ced":
+        print("Initializing CED feature extractor...")
+        feature_extractor = CedFeatureExtractor(
+            model_name=args.ced_model_name,
+            device=device,
+        )
+        # CED model is frozen, so ensure eval mode
+        feature_extractor.model.eval()
+        for param in feature_extractor.model.parameters():
+            param.requires_grad = False
+
+        # CED hidden size is typically 768 for base models
+        feature_dim = 768  # You might need to adjust this based on the actual model
+        sample_rate = 16000
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
@@ -533,7 +569,7 @@ if __name__ == "__main__":
         "--encoder_type",
         type=str,
         default="clap",
-        choices=["clap", "openl3"],
+        choices=["clap", "openl3", "ced"],
         help="Type of audio encoder to use",
     )
     parser.add_argument(
@@ -564,6 +600,14 @@ if __name__ == "__main__":
         default="env",
         choices=["music", "env"],
         help="Content type for OpenL3 model. Only used when encoder_type='openl3'",
+    )
+
+    # Add CED-specific arguments
+    parser.add_argument(
+        "--ced_model_name",
+        type=str,
+        default="mispeech/ced-base",
+        help="CED model name from Hugging Face. Only used when encoder_type='ced'",
     )
 
     # Model parameters

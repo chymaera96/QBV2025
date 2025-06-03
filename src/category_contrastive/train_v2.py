@@ -15,7 +15,7 @@ import wandb
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
 
-from .dataset import UnifiedVimSketch
+from .dataset_v2 import UnifiedVimSketch
 from .evaluate import evaluate_qvim_system
 from .features import CLAPFeatureExtractor, OpenL3FeatureExtractor
 

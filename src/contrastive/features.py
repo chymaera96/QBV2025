@@ -3,7 +3,12 @@ import sys
 
 import numpy as np
 import torch
+import torchaudio
 import torchopenl3
+from ced_model.feature_extraction_ced import (
+    CedFeatureExtractor as HFCedFeatureExtractor,
+)
+from ced_model.modeling_ced import CedForAudioClassification
 
 # Add project root to Python path if needed
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -162,3 +167,65 @@ class OpenL3FeatureExtractor:
 
             # Ensure we return CPU tensor to avoid GPU memory accumulation
             return embedding.cpu()
+
+
+class CedFeatureExtractor:
+    def __init__(self, model_name="mispeech/ced-base", device="cuda"):
+        self.device = device
+        self.model_name = model_name
+        self.sample_rate = 16000  # CED expects 16kHz audio
+
+        # Load the feature extractor and model
+        self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+        self.model = CedForAudioClassification.from_pretrained(model_name).to(device)
+
+        # Set model to eval mode and freeze parameters
+        self.model.eval()
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+    def __call__(self, audio_tensor):
+        """
+        Extract CED features directly from audio tensor
+
+        Args:
+            audio_tensor: Audio tensor (1D tensor of audio samples)
+
+        Returns:
+            Feature tensor (hidden states from the model)
+        """
+        with torch.no_grad():
+            if isinstance(audio_tensor, torch.Tensor):
+                audio_np = audio_tensor.cpu().numpy()
+            else:
+                audio_np = audio_tensor
+
+            # Ensure mono audio
+            if audio_np.ndim > 1:
+                audio_np = audio_np.mean(axis=0)
+
+            # Convert back to tensor for torchaudio compatibility
+            if not isinstance(audio_tensor, torch.Tensor):
+                audio_tensor = torch.from_numpy(audio_np).float()
+
+            # Prepare inputs using the feature extractor
+            inputs = self.feature_extractor(
+                audio_tensor, sampling_rate=self.sample_rate, return_tensors="pt"
+            )
+
+            # Move inputs to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+            # Get model outputs (we want hidden states, not classification logits)
+            outputs = self.model(**inputs, output_hidden_states=True)
+
+            # Extract the last hidden state and pool it
+            # outputs.hidden_states[-1] shape: (batch_size, sequence_length, hidden_size)
+            last_hidden_state = outputs.hidden_states[-1]
+
+            # Global average pooling over the sequence dimension
+            pooled_features = last_hidden_state.mean(dim=1).squeeze(
+                0
+            )  # Remove batch dim
+
+            return pooled_features.cpu()

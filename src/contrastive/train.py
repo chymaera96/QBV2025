@@ -17,7 +17,12 @@ if __name__ == "__main__":
 
 from .dataset import VimSketch
 from .evaluate import evaluate_qvim_system
-from .features import CedFeatureExtractor, CLAPFeatureExtractor, OpenL3FeatureExtractor
+from .features import (
+    CedFeatureExtractor,
+    CedPlusFeaturesExtractor,
+    CLAPFeatureExtractor,
+    OpenL3FeatureExtractor,
+)
 
 
 class ProjectionMLP(nn.Module):
@@ -287,6 +292,8 @@ def main(args):
         )
     elif args.encoder_type == "ced":
         model_name_parts.append(f"{args.ced_model_name.split('/')[-1]}")
+    elif args.encoder_type == "ced_plus":
+        model_name_parts.append(f"{args.ced_model_name.split('/')[-1]}")
 
     model_name_parts.extend(
         [
@@ -381,6 +388,18 @@ def main(args):
         else:
             feature_dim = 768
 
+        sample_rate = 16000
+    elif args.encoder_type == "ced_plus":
+        print("Initializing CED+Features feature extractor...")
+        feature_extractor = CedPlusFeaturesExtractor(
+            model_name=args.ced_model_name,
+            device=device,
+            num_temporal_samples=50,  # or make this configurable
+        )
+        # Calculate combined feature dimension
+        base_ced_dim = 768 if "base" in args.ced_model_name else 384  # adjust as needed
+        temporal_features_dim = 50 * 3  # 3 features × 50 samples each
+        feature_dim = base_ced_dim + temporal_features_dim
         sample_rate = 16000
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
@@ -577,7 +596,7 @@ if __name__ == "__main__":
         "--encoder_type",
         type=str,
         default="clap",
-        choices=["clap", "openl3", "ced"],
+        choices=["clap", "openl3", "ced", "ced_plus"],
         help="Type of audio encoder to use",
     )
     parser.add_argument(

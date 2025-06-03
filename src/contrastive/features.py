@@ -204,28 +204,22 @@ class CedFeatureExtractor:
             if audio_np.ndim > 1:
                 audio_np = audio_np.mean(axis=0)
 
-            # Convert back to tensor for torchaudio compatibility
-            if not isinstance(audio_tensor, torch.Tensor):
-                audio_tensor = torch.from_numpy(audio_np).float()
-
             # Prepare inputs using the feature extractor
             inputs = self.feature_extractor(
-                audio_tensor, sampling_rate=self.sample_rate, return_tensors="pt"
+                audio_np, sampling_rate=self.sample_rate, return_tensors="pt"
             )
 
             # Move inputs to device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # Get model outputs (we want hidden states, not classification logits)
-            outputs = self.model(**inputs, output_hidden_states=True)
+            # Get model outputs - use encoder directly like in your ced.py
+            encoder_outputs = self.model.encoder(**inputs)
 
-            # Extract the last hidden state and pool it
-            # outputs.hidden_states[-1] shape: (batch_size, sequence_length, hidden_size)
-            last_hidden_state = outputs.hidden_states[-1]
+            # Get the last hidden state from encoder outputs
+            # Based on your ced.py, the structure is encoder_outputs["logits"][-1]
+            last_hidden_state = encoder_outputs["logits"][-1]
 
             # Global average pooling over the sequence dimension
-            pooled_features = last_hidden_state.mean(dim=1).squeeze(
-                0
-            )  # Remove batch dim
+            pooled_features = last_hidden_state.mean(dim=0).squeeze(0)
 
             return pooled_features.cpu()

@@ -76,8 +76,13 @@ class CED(nn.Module):
 
             except Exception as e:
                 print(f"Error processing {file_path}: {e}")
-                # Return zero embedding as fallback (CED base typically has 768 hidden size)
-                zero_embedding = torch.zeros(768, device=self.device)
+
+                # if an embedding is already computed, we'll be able to get its shape
+                # to return an empty embedding
+                # if this happened at the start, there's possibly a bug that needs fixing
+                zero_embedding = torch.zeros(
+                    pooled_features.shape[0], device=self.device
+                )
                 embeddings.append(zero_embedding)
 
         return torch.stack(embeddings)
@@ -193,7 +198,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         type=str,
-        default="mispeech/ced-tiny",
+        default="mispeech/ced-base",
         help="CED model name from Hugging Face",
     )
 

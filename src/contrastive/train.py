@@ -371,8 +371,16 @@ def main(args):
         for param in feature_extractor.model.parameters():
             param.requires_grad = False
 
-        # CED hidden size is typically 768 for base models
-        feature_dim = 768  # You might need to adjust this based on the actual model
+        # Determine feature dimension based on model name
+        if "tiny" in args.ced_model_name.lower():
+            feature_dim = 192
+        if "mini" in args.ced_model_name.lower():
+            feature_dim = 256
+        elif "small" in args.ced_model_name.lower():
+            feature_dim = 384
+        else:
+            feature_dim = 768
+
         sample_rate = 16000
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")

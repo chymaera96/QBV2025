@@ -396,10 +396,19 @@ def main(args):
             device=device,
             num_temporal_samples=50,  # or make this configurable
         )
+
+        # Determine feature dimension based on model name
+        if "tiny" in args.ced_model_name.lower():
+            feature_dim = 192
+        elif "mini" in args.ced_model_name.lower():
+            feature_dim = 256
+        elif "small" in args.ced_model_name.lower():
+            feature_dim = 384
+        else:
+            feature_dim = 768
+
         # Calculate combined feature dimension
-        base_ced_dim = 768 if "base" in args.ced_model_name else 384  # adjust as needed
-        temporal_features_dim = 50 * 3  # 3 features × 50 samples each
-        feature_dim = base_ced_dim + temporal_features_dim
+        feature_dim = feature_dim + 50 * 3
         sample_rate = 16000
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")

@@ -374,7 +374,7 @@ def main(args):
         # Determine feature dimension based on model name
         if "tiny" in args.ced_model_name.lower():
             feature_dim = 192
-        if "mini" in args.ced_model_name.lower():
+        elif "mini" in args.ced_model_name.lower():
             feature_dim = 256
         elif "small" in args.ced_model_name.lower():
             feature_dim = 384

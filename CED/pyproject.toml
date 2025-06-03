@@ -1,0 +1,21 @@
+[project]
+name = 'hf_transformers_custom_model_ced'
+version = '0.0.2'
+
+dependencies = []
+
+[tool.poetry]
+description = {file = 'README.md', format = 'markdown'}
+authors = [
+  {name = "Heinrich Dinkel", email = "dinkelheinrich@xiaomi.com"},
+  {name = "Junbo Zhang", email = "zhangjunbo1@xiaomi.com"},
+]
+maintainers = [
+  {name = "Junbo Zhang", email = "zhangjunbo1@xiaomi.com"},  
+  {name = "Heinrich Dinkel", email = "dinkelheinrich@xiaomi.com"},
+]
+readme = 'README.md'
+requires-python = '>=3.9'
+
+[tool.setuptools.packages.find]
+where = ['.']

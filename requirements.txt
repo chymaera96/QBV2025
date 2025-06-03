@@ -17,4 +17,4 @@ audiomentations
 numpy<2 
 torchopenl3
 -e ./CLAP
--e ./hf_transformers_custom_model_ced
+-e ./CED

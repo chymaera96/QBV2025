@@ -180,8 +180,8 @@ def validate_with_evaluate(
                     feature = feature_extractor(audio).unsqueeze(
                         0
                     )  # Add batch dimension
-                elif encoder_type == "ced":
-                    # Get CED embeddings
+                elif encoder_type in ["ced", "ced_plus"]:
+                    # Get CED or CED+Features embeddings
                     import librosa
 
                     audio, sr = librosa.load(
@@ -226,8 +226,8 @@ def validate_with_evaluate(
                     feature = feature_extractor(audio).unsqueeze(
                         0
                     )  # Add batch dimension
-                elif encoder_type == "ced":
-                    # Get CED embeddings
+                elif encoder_type in ["ced", "ced_plus"]:
+                    # Get CED or CED+Features embeddings
                     import librosa
 
                     audio, sr = librosa.load(

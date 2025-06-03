@@ -204,6 +204,15 @@ class CedFeatureExtractor:
             if audio_np.ndim > 1:
                 audio_np = audio_np.mean(axis=0)
 
+            # ensure longer than 16000
+            if audio_np.ndim == 1 and len(audio_np) < self.sample_rate / 4:
+                # Pad with zeros if audio is shorter than 1 second
+                audio_np = np.pad(
+                    audio_np,
+                    (0, int((self.sample_rate / 4)) - len(audio_np)),
+                    mode="constant",
+                )
+
             # Prepare inputs using the feature extractor
             inputs = self.feature_extractor(
                 audio_np, sampling_rate=self.sample_rate, return_tensors="pt"

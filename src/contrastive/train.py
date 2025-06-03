@@ -293,7 +293,7 @@ def main(args):
     elif args.encoder_type == "ced":
         model_name_parts.append(f"{args.ced_model_name.split('/')[-1]}")
     elif args.encoder_type == "ced_plus":
-        model_name_parts.append(f"{args.ced_model_name.split('/')[-1]}")
+        model_name_parts.append(f"feat{args.ced_model_name.split('/')[-1]}")
 
     model_name_parts.extend(
         [

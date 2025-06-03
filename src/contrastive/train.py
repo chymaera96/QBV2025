@@ -273,7 +273,6 @@ def main(args):
     # Update the model name generation to include OpenL3 parameters
     model_name_parts = [
         "SC",
-        f"{args.encoder_type}",
     ]
 
     if args.encoder_type == "clap":
@@ -281,12 +280,13 @@ def main(args):
     elif args.encoder_type == "openl3":
         model_name_parts.extend(
             [
+                "openl3",
                 f"in-{args.openl3_input_repr}",
                 f"emb-{args.openl3_embedding_size}",
             ]
         )
     elif args.encoder_type == "ced":
-        model_name_parts.append(f"ced-{args.ced_model_name.split('/')[-1]}")
+        model_name_parts.append(f"{args.ced_model_name.split('/')[-1]}")
 
     model_name_parts.extend(
         [

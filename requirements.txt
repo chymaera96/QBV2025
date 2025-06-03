@@ -17,3 +17,4 @@ audiomentations
 numpy<2 
 torchopenl3
 -e ./CLAP
+git+https://github.com/jimbozhang/hf_transformers_custom_model_ced.git

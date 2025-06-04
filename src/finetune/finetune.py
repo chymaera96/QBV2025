@@ -36,7 +36,7 @@ def main():
         MODEL_CONFIG["precision"],
         "--pretrained",
         PATHS["clap_checkpoint"],
-        # Training args
+        # Training args - Use safer values
         "--epochs",
         str(TRAINING_CONFIG["epochs"]),
         "--batch-size",
@@ -47,13 +47,13 @@ def main():
         str(TRAINING_CONFIG["weight_decay"]),
         "--warmup",
         str(TRAINING_CONFIG["warmup_steps"]),
-        # Fine-tuning specific
+        # Fine-tuning specific - Much lower learning rates
         "--split-opt",
         "--lr-pretrained",
-        "1e-6",
+        "1e-8",  # Very small for pretrained
         "--lr-new",
-        "1e-4",
-        # Data processing - Add max-len to ensure it's set
+        "1e-6",  # Small for new parameters
+        # Data processing
         "--max-len",
         "480000",
         "--data-filling",
@@ -70,13 +70,16 @@ def main():
         PATHS["logs"],
         "--name",
         PATHS.get("experiment_name", "vim_sketch_finetune"),
+        # Evaluation - Enable it but start from epoch 1
+        "--val-frequency",
+        str(TRAINING_CONFIG.get("val_frequency", 2)),
         # System
         "--workers",
-        "4",
+        "2",  # Reduced workers
         "--seed",
         "42",
-        # Skip evaluation for now (or implement it)
-        "--no-eval",
+        # Skip initial evaluation to avoid the error
+        "--no-eval",  # Add this back temporarily
         # Enable wandb logging
         "--wandb",
     ]

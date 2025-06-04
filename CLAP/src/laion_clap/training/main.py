@@ -33,6 +33,15 @@ from training.params import parse_args
 from training.scheduler import cosine_lr
 from training.train import evaluate, train_one_epoch
 
+try:
+    from .evaluate_vim import evaluate_vim_clap
+except ImportError as e:
+    logging.warning(f"VimSketch evaluation not available: {e}")
+
+    def evaluate_vim_clap(model, data, epoch, args, tb_writer=None):
+        logging.warning("VimSketch evaluation not available")
+        return {"mrr": 0.0, "class_wise_mrr": 0.0, "ndcg": 0.0}
+
 
 def maintain_ckpts(args, startidx, all_idx_len):
     for i in reversed(range(startidx, all_idx_len)):
@@ -551,11 +560,19 @@ def main():
     #     # ... (comment out this entire block)
 
     if "train" not in data:
-        evaluate(model, data, start_epoch, args, writer)
+        # Use VimSketch evaluation if it's a vim dataset
+        if args.dataset_type == "vim":
+            evaluate_vim_clap(model, data, start_epoch, args, writer)
+        else:
+            evaluate(model, data, start_epoch, args, writer)
         return
     elif start_epoch == 0 and "val" in data and not args.no_eval:
-        evaluate(model, data, 0, args, writer)
-        #  print(f'rank {args.rank}, Start First Evaluation')#  (yusong): for debug
+        # Use VimSketch evaluation if it's a vim dataset
+        if args.dataset_type == "vim":
+            evaluate_vim_clap(model, data, 0, args, writer)
+        else:
+            evaluate(model, data, 0, args, writer)
+
     if args.save_top_performance:
         current_top_k_ckpt_metrics = {
             i: 0 for i in range(args.save_top_performance)
@@ -575,6 +592,7 @@ def main():
             if any(v is None for v in [data, model, optimizer, scaler, scheduler]):
                 # a warmup stage
                 continue
+
             if is_master(args):
                 if (
                     (completed_epoch == args.epochs)
@@ -618,18 +636,27 @@ def main():
                     torch.ones([]) * np.log(1 / 0.07)
                 ).to(args.device)
 
-            # Evaluate if needed
+            # VimSketch evaluation
             if not args.no_eval and (
                 (completed_epoch % args.val_frequency) == 0
                 or completed_epoch == args.epochs
             ):
-                eval_metrics = evaluate(model, data, completed_epoch, args, writer)
-                if args.wandb and eval_metrics and is_master(args):
-                    # Log evaluation metrics
-                    eval_log = {
-                        f"eval/{k}": v for k, v in eval_metrics.items() if k != "epoch"
-                    }
-                    wandb.log(eval_log)
+                if args.dataset_type == "vim":
+                    # Use VimSketch-specific evaluation
+                    eval_metrics = evaluate_vim_clap(
+                        model, data, completed_epoch, args, writer
+                    )
+                    if eval_metrics and args.wandb and is_master(args):
+                        # Log evaluation metrics
+                        eval_log = {
+                            f"eval/{k}": v
+                            for k, v in eval_metrics.items()
+                            if k != "epoch"
+                        }
+                        wandb.log(eval_log)
+                else:
+                    # Use original evaluation for other datasets
+                    evaluate(model, data, completed_epoch, args, writer)
 
     except KeyboardInterrupt:
         logging.info("Training interrupted by user")

@@ -723,11 +723,37 @@ class CLAP(nn.Module):
         return x
 
     def forward(self, audio, text, device=None):
+        # Handle device detection for dictionary inputs
         if device is None:
             if audio is not None:
-                device = audio.device
+                if isinstance(audio, dict):
+                    # Find the first tensor in the audio dict to get device
+                    for key, value in audio.items():
+                        if isinstance(value, torch.Tensor):
+                            device = value.device
+                            break
+                    if device is None:
+                        device = torch.device(
+                            "cuda" if torch.cuda.is_available() else "cpu"
+                        )
+                else:
+                    device = audio.device
             elif text is not None:
-                device = text.device
+                if isinstance(text, dict):
+                    # Find the first tensor in the text dict to get device
+                    for key, value in text.items():
+                        if isinstance(value, torch.Tensor):
+                            device = value.device
+                            break
+                    if device is None:
+                        device = torch.device(
+                            "cuda" if torch.cuda.is_available() else "cpu"
+                        )
+                else:
+                    device = text.device
+            else:
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         if audio is None and text is None:
             return self.logit_scale_a.exp(), self.logit_scale_t.exp()
         elif audio is None:
@@ -736,6 +762,7 @@ class CLAP(nn.Module):
             return self.audio_projection(
                 self.encode_audio(audio, device=device)["embedding"]
             )
+
         audio_features = self.audio_projection(
             self.encode_audio(audio, device=device)["embedding"]
         )

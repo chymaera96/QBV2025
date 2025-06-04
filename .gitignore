@@ -205,3 +205,6 @@ output/
 
 # vscode
 .vscode/
+
+# clap logs
+logs/

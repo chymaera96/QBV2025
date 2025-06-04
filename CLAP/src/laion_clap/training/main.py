@@ -1,8 +1,9 @@
+import copy
 import logging
 import os
 import random
 from datetime import datetime
-import copy
+
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -23,14 +24,14 @@ try:
 except ImportError:
     hvd = None
 
-from clap_module import create_model_and_transforms, trace_model, create_model
+from clap_module import create_model, create_model_and_transforms, trace_model
+from clap_module.utils import dataset_split, get_optimizer
 from training.data import get_data
-from training.distributed import is_master, init_distributed_device, world_info_from_env
+from training.distributed import init_distributed_device, is_master, world_info_from_env
 from training.logger import setup_logging
 from training.params import parse_args
 from training.scheduler import cosine_lr
-from training.train import train_one_epoch, evaluate
-from clap_module.utils import dataset_split, get_optimizer
+from training.train import evaluate, train_one_epoch
 
 
 def maintain_ckpts(args, startidx, all_idx_len):
@@ -38,7 +39,7 @@ def maintain_ckpts(args, startidx, all_idx_len):
         if os.path.exists(os.path.join(args.checkpoint_path, f"epoch_top_{i}.pt")):
             os.rename(
                 os.path.join(args.checkpoint_path, f"epoch_top_{i}.pt"),
-                os.path.join(args.checkpoint_path, f"epoch_top_{i+1}.pt"),
+                os.path.join(args.checkpoint_path, f"epoch_top_{i + 1}.pt"),
             )
     if os.path.exists(
         os.path.join(args.checkpoint_path, f"epoch_top_{all_idx_len}.pt")
@@ -124,6 +125,7 @@ def random_seed(seed=42, rank=0):
 
 def main():
     args = parse_args()
+
     # sanitize model name for filesystem / uri use, easier if we don't use / in name as a rule?
     args.amodel = args.amodel.replace("/", "-")
     # download sizes.json file
@@ -137,10 +139,10 @@ def main():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     np.random.seed(args.seed)
-    if args.tmodel == "bert" or args.tmodel == "roberta" or args.tmodel == "bart":
-        assert (
-            args.pretrained == "" or args.pretrained is None
-        ), "bert/roberta/bart text encoder does not support pretrained models."
+    # if args.tmodel == "bert" or args.tmodel == "roberta" or args.tmodel == "bart":
+    #     assert (
+    #         args.pretrained == "" or args.pretrained is None
+    #     ), "bert/roberta/bart text encoder does not support pretrained models."
 
     # get the name of the experiments
     if args.name is None:
@@ -187,8 +189,80 @@ def main():
     # fully initialize distributed device environment
     device = init_distributed_device(args)
 
-    args.wandb = "wandb" in args.report_to or "all" in args.report_to
+    # Store the original wandb flag before it gets overwritten
+    original_wandb_flag = args.wandb
+
+    # NOW initialize wandb after distributed setup is complete
+    if args.wandb and wandb is not None and is_master(args):
+        wandb_entity = os.environ.get("WANDB_ENTITY", None)
+        wandb_project = os.environ.get("WANDB_PROJECT", "clap-finetune")
+
+        if wandb_entity is None:
+            logging.warning("WANDB_ENTITY not set. Using anonymous logging.")
+
+        # Create a descriptive run name
+        run_name = (
+            f"{args.name}_{args.dataset_type}"
+            if args.name
+            else f"clap_{args.dataset_type}"
+        )
+        if args.dataset_type == "vim":
+            run_name += f"_{args.amodel}_{args.tmodel}"
+
+        # Add timestamp to avoid conflicts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_name += f"_{timestamp}"
+
+        try:
+            wandb.init(
+                project=wandb_project,
+                entity=wandb_entity,
+                name=run_name,
+                config=vars(args),
+                notes=args.wandb_notes
+                if hasattr(args, "wandb_notes") and args.wandb_notes
+                else None,
+                tags=[args.dataset_type, args.amodel, args.tmodel, "finetune"]
+                if args.dataset_type == "vim"
+                else [args.dataset_type],
+                resume="allow",
+                id=args.wandb_id
+                if hasattr(args, "wandb_id") and args.wandb_id
+                else None,
+            )
+
+            logging.info(
+                f"W&B initialized: project={wandb_project}, entity={wandb_entity}, name={run_name}"
+            )
+
+            # Log initial config
+            wandb.log(
+                {
+                    "config/batch_size": args.batch_size,
+                    "config/learning_rate": args.lr,
+                    "config/epochs": args.epochs,
+                    "config/dataset_type": args.dataset_type,
+                    "config/audio_model": args.amodel,
+                    "config/text_model": args.tmodel,
+                }
+            )
+
+        except Exception as e:
+            logging.warning(f"Failed to initialize wandb: {e}")
+            args.wandb = False
+
+    elif args.wandb and wandb is None:
+        logging.warning(
+            "wandb requested but not installed. Install with 'pip install wandb'"
+        )
+        args.wandb = False
+
+    # Handle the report_to logic without overwriting our wandb initialization
+    args.wandb_report = (
+        "wandb" in args.report_to or "all" in args.report_to or original_wandb_flag
+    )
     args.tensorboard = "tensorboard" in args.report_to or "all" in args.report_to
+
     if is_master(args):
         args.tensorboard_path = (
             os.path.join(args.logs, args.name, "tensorboard")
@@ -242,7 +316,7 @@ def main():
         pretrained_audio=args.pretrained_audio,
         pretrained_text=args.pretrained_text,
         enable_fusion=args.enable_fusion,
-        fusion_type=args.fusion_type
+        fusion_type=args.fusion_type,
     )
 
     if args.horovod:
@@ -292,11 +366,7 @@ def main():
     named_parameters = list(model.named_parameters())
 
     # freeze text encoder
-    text_freeze_parameters = [
-        p
-        for n, p in named_parameters
-        if 'text_branch' in n
-    ]
+    text_freeze_parameters = [p for n, p in named_parameters if "text_branch" in n]
 
     if args.freeze_text:
         print("Freeze Text!!!!")
@@ -359,7 +429,7 @@ def main():
                 eps=args.eps_pretrained,
                 momentum=args.momentum_pretrained,
                 optimizer_name=args.optimizer,
-                )
+            )
             pretrained_params_scheduler = cosine_lr(
                 pretrained_params_optimizer,
                 args.lr_pretrained,
@@ -376,7 +446,7 @@ def main():
                 eps=args.eps_new,
                 momentum=args.momentum_new,
                 optimizer_name=args.optimizer,
-                )
+            )
 
             new_params_scheduler = cosine_lr(
                 new_params_optimizer, args.lr_new, args.warmup, total_steps
@@ -474,25 +544,11 @@ def main():
         assert tensorboard is not None, "Please install tensorboard."
         writer = tensorboard.SummaryWriter(args.tensorboard_path)
 
-    if args.wandb and is_master(args):
-        assert wandb is not None, "Please install wandb."
-        logging.debug("Starting wandb.")
-        args.train_sz = data["train"].dataloader.num_samples
-        if args.val_data is not None:
-            args.val_sz = data["val"].dataloader.num_samples
-        # you will have to configure this for your project!
-        wandb.init(
-            entity="clap",
-            project="clap",
-            notes=args.wandb_notes,
-            name=args.wandb_notes,
-            tags=[],
-            config=vars(args),
-        )
-        if args.debug:
-            wandb.watch(model, log="all")
-        wandb.save(params_file)
-        logging.debug("Finished loading wandb.")
+    # Remove or comment out the duplicate wandb initialization later in the code
+    # if args.wandb and is_master(args):
+    #     assert wandb is not None, "Please install wandb."
+    #     logging.debug("Starting wandb.")
+    #     # ... (comment out this entire block)
 
     if "train" not in data:
         evaluate(model, data, start_epoch, args, writer)
@@ -506,91 +562,83 @@ def main():
         }  # initialize the top-k metric for ckpts to 0
 
     #  print(f'rank {args.rank}, Start Training') #  (yusong): for debug
-    for epoch in range(start_epoch, args.epochs):
-        # freeze the text param after (include) args.freeze_text_after, this is -1 by default
-        if epoch == args.freeze_text_after:
-            print("Text pretrained parameters are freezed since this epoch.")
-            for k in text_freeze_parameters:
-                k.requires_grad = False
-        if is_master(args):
-            logging.info(f"Start epoch {epoch}")
+    try:
+        for epoch in range(start_epoch, args.epochs):
+            if is_master(args):
+                logging.info(f"Start epoch {epoch}")
 
-        train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, writer)
-        completed_epoch = epoch + 1
+            train_one_epoch(
+                model, data, epoch, optimizer, scaler, scheduler, args, writer
+            )
+            completed_epoch = epoch + 1
 
-        if (
-            any(v in data for v in ("val", "imagenet-val", "imagenet-v2"))
-            and not args.no_eval
-        ):
-            metrics = evaluate(model, data, completed_epoch, args, writer)
-            if args.save_top_performance:
-                top_k_dataset = args.top_k_checkpoint_select_dataset
-                top_k_metric = args.top_k_checkpoint_select_metric
-                filtered_metrics = [
-                    v
-                    for k, v in metrics.items()
-                    if top_k_metric in k and top_k_dataset in k
-                ]  # check all R@10 metrics (all dataset) and use it to update the ckpt
-        # Saving checkpoints.
-        if args.save_logs:
-            if args.split_opt:
-                opt_dict = {
-                    k + "_" + "optimizer": v.state_dict() for k, v in optimizer.items()
-                }
-            else:
-                opt_dict = {"optimizer": optimizer.state_dict()}
-            checkpoint_dict = {
-                "epoch": completed_epoch,
-                "name": args.name,
-                "state_dict": model.state_dict(),
-            }
-            checkpoint_dict.update(opt_dict)
-            if scaler is not None:
-                checkpoint_dict["scaler"] = scaler.state_dict()
+            if any(v is None for v in [data, model, optimizer, scaler, scheduler]):
+                # a warmup stage
+                continue
+            if is_master(args):
+                if (
+                    (completed_epoch == args.epochs)
+                    or (
+                        args.save_frequency > 0
+                        and (completed_epoch % args.save_frequency) == 0
+                    )
+                    or (
+                        args.save_most_recent
+                        and (completed_epoch % args.zeroshot_frequency) == 0
+                    )
+                ):
+                    save_path = os.path.join(
+                        args.checkpoint_path, f"epoch_{completed_epoch}.pt"
+                    )
+                    save_checkpoint(
+                        {
+                            "epoch": completed_epoch,
+                            "name": args.name,
+                            "state_dict": model.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                        },
+                        save_path,
+                    )
 
-            if completed_epoch == args.epochs or (
-                args.save_frequency > 0 and (completed_epoch % args.save_frequency) == 0
+                    # Log checkpoint save to wandb
+                    if args.wandb:
+                        wandb.log(
+                            {
+                                "checkpoint/epoch": completed_epoch,
+                                "checkpoint/saved": True,
+                            }
+                        )
+
+            # resetting the scale for the clap loss, as we have two loss in CLAP model
+            if args.clap_mlploss:
+                unwrap_model(model).logit_scale_a = torch.nn.Parameter(
+                    torch.ones([]) * np.log(1 / 0.07)
+                ).to(args.device)
+                unwrap_model(model).logit_scale_t = torch.nn.Parameter(
+                    torch.ones([]) * np.log(1 / 0.07)
+                ).to(args.device)
+
+            # Evaluate if needed
+            if not args.no_eval and (
+                (completed_epoch % args.val_frequency) == 0
+                or completed_epoch == args.epochs
             ):
-                torch.save(
-                    checkpoint_dict,
-                    os.path.join(args.checkpoint_path, f"epoch_{completed_epoch}.pt"),
-                )
-            if args.save_most_recent:
-                torch.save(
-                    checkpoint_dict,
-                    os.path.join(args.checkpoint_path, f"epoch_latest.pt"),
-                )
-            if args.save_top_performance and not args.no_eval:
-                update_top_k_performance(
-                    filtered_metrics,
-                    current_top_k_ckpt_metrics,
-                    args,
-                    checkpoint_dict,
-                    bignumbetter=True,
-                )
+                eval_metrics = evaluate(model, data, completed_epoch, args, writer)
+                if args.wandb and eval_metrics and is_master(args):
+                    # Log evaluation metrics
+                    eval_log = {
+                        f"eval/{k}": v for k, v in eval_metrics.items() if k != "epoch"
+                    }
+                    wandb.log(eval_log)
 
-    if args.wandb and is_master(args):
-        wandb.finish()
+    except KeyboardInterrupt:
+        logging.info("Training interrupted by user")
+        if args.wandb:
+            wandb.log({"training/interrupted": True})
 
-
-def copy_codebase(args):
-    from shutil import copytree, ignore_patterns
-
-    new_code_path = os.path.join(args.logs, args.name, "code")
-    if os.path.exists(new_code_path):
-        print(
-            f"Error. Experiment already exists at {new_code_path}. Use --name to specify a new experiment."
-        )
-        return -1
-    print(f"Copying codebase to {new_code_path}")
-    current_code_path = os.path.realpath(__file__)
-    for _ in range(3):
-        current_code_path = os.path.dirname(current_code_path)
-    copytree(
-        current_code_path, new_code_path, ignore=ignore_patterns("log", "logs", "wandb")
-    )
-    print("Done copying code.")
-    return 1
+    finally:
+        if args.wandb:
+            wandb.finish()
 
 
 if __name__ == "__main__":

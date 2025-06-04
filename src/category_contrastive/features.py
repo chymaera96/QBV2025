@@ -1,9 +1,14 @@
+import json
 import os
 import sys
 
 import numpy as np
 import torch
 import torchopenl3
+from ced_model.feature_extraction_ced import (
+    CedFeatureExtractor as HFCedFeatureExtractor,
+)
+from ced_model.modeling_ced import CedForAudioClassification
 
 # Add project root to Python path if needed
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -162,3 +167,94 @@ class OpenL3FeatureExtractor:
 
             # Ensure we return CPU tensor to avoid GPU memory accumulation
             return embedding.cpu()
+
+
+class CedFeatureExtractor:
+    def __init__(self, model_name="mispeech/ced-base", device="cuda"):
+        self.device = device
+        self.model_name = model_name
+        self.sample_rate = 16000  # CED expects 16kHz audio
+
+        try:
+            # Load the feature extractor and model
+            self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+            self.model = CedForAudioClassification.from_pretrained(model_name).to(
+                self.device
+            )
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Error loading model {model_name}: {e}")
+            print("Trying to clear cache and reload...")
+
+            # Clear the cached files and try again
+            import shutil
+            from pathlib import Path
+
+            cache_dir = (
+                Path.home()
+                / ".cache"
+                / "huggingface"
+                / "hub"
+                / f"models--{model_name.replace('/', '--')}"
+            )
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+                print(f"Cleared cache directory: {cache_dir}")
+
+            # Try loading again
+            self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+            self.model = CedForAudioClassification.from_pretrained(model_name).to(
+                self.device
+            )
+
+        # Set model to eval mode and freeze parameters
+        self.model.eval()
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+    def __call__(self, audio_tensor):
+        """
+        Extract CED features directly from audio tensor
+
+        Args:
+            audio_tensor: Audio tensor (1D tensor of audio samples)
+
+        Returns:
+            Feature tensor (hidden states from the model)
+        """
+        with torch.no_grad():
+            if isinstance(audio_tensor, torch.Tensor):
+                audio_np = audio_tensor.cpu().numpy()
+            else:
+                audio_np = audio_tensor
+
+            # Ensure mono audio
+            if audio_np.ndim > 1:
+                audio_np = audio_np.mean(axis=0)
+
+            # ensure longer than 16000
+            if audio_np.ndim == 1 and len(audio_np) < self.sample_rate / 4:
+                # Pad with zeros if audio is shorter than 0.25 seconds
+                audio_np = np.pad(
+                    audio_np,
+                    (0, int((self.sample_rate / 4)) - len(audio_np)),
+                    mode="constant",
+                )
+
+            # Prepare inputs using the feature extractor
+            inputs = self.feature_extractor(
+                audio_np, sampling_rate=self.sample_rate, return_tensors="pt"
+            )
+
+            # Move inputs to device
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+            # Get model outputs - use encoder directly
+            encoder_outputs = self.model.encoder(**inputs)
+
+            # Get the last hidden state from encoder outputs
+            last_hidden_state = encoder_outputs["logits"][-1]
+
+            # Global average pooling over the sequence dimension
+            pooled_features = last_hidden_state.mean(dim=0).squeeze(0)
+
+            return pooled_features.cpu()

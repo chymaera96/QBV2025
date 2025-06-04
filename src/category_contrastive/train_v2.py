@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
 from .dataset_v2 import UnifiedVimSketch
 from .evaluate import evaluate_qvim_system
-from .features import CLAPFeatureExtractor, OpenL3FeatureExtractor
+from .features import CedFeatureExtractor, CLAPFeatureExtractor, OpenL3FeatureExtractor
 
 
 class ProjectionMLP(nn.Module):
@@ -46,32 +46,34 @@ class UnifiedContrastiveLoss(nn.Module):
     def forward(self, embeddings, category_indices):
         # Normalize embeddings
         embeddings = torch.nn.functional.normalize(embeddings, dim=1, eps=self.eps)
-
         batch_size = embeddings.size(0)
 
-        # Compute similarity matrix between all pairs
+        # Compute similarity matrix
         sim_matrix = torch.matmul(embeddings, embeddings.T) / self.temperature
 
-        # Create positive mask: same category = positive pair
+        # Create masks
         category_indices = category_indices.unsqueeze(1)
         positive_mask = (category_indices == category_indices.T).float()
+        positive_mask.fill_diagonal_(0)  # Remove self-similarity
 
-        # Remove self-similarity (diagonal)
-        positive_mask.fill_diagonal_(0)
+        # Create negative mask (not same category, not self)
+        negative_mask = (category_indices != category_indices.T).float()
 
         # Supervised contrastive loss
         exp_sim = torch.exp(sim_matrix)
 
-        # For each sample, compute the loss
         total_loss = 0.0
         valid_samples = 0
 
         for i in range(batch_size):
             pos_mask_i = positive_mask[i]
+            neg_mask_i = negative_mask[i]
 
-            if pos_mask_i.sum() > 0:  # Only if there are positive pairs
+            if pos_mask_i.sum() > 0 and neg_mask_i.sum() > 0:
+                # Sum of positive similarities
                 pos_exp_sum = torch.sum(exp_sim[i] * pos_mask_i)
-                all_exp_sum = torch.sum(exp_sim[i]) - exp_sim[i, i]  # Exclude self
+                # Sum of all similarities (positive + negative, excluding self)
+                all_exp_sum = torch.sum(exp_sim[i] * (pos_mask_i + neg_mask_i))
 
                 if all_exp_sum > 0:
                     loss_i = -torch.log(pos_exp_sum / all_exp_sum)
@@ -229,6 +231,16 @@ def validate_with_evaluate(
                     feature = feature_extractor(audio).unsqueeze(
                         0
                     )  # Add batch dimension
+                elif encoder_type == "ced":
+                    # Get CED embeddings
+                    import librosa
+
+                    audio, sr = librosa.load(
+                        file_path, sr=feature_extractor.sample_rate, mono=True
+                    )
+                    feature = feature_extractor(audio).unsqueeze(
+                        0
+                    )  # Add batch dimension
 
                 # Project through trained MLP
                 feature = feature.to(device)
@@ -257,6 +269,16 @@ def validate_with_evaluate(
                         )
                 elif encoder_type == "openl3":
                     # Get OpenL3 embeddings
+                    import librosa
+
+                    audio, sr = librosa.load(
+                        file_path, sr=feature_extractor.sample_rate, mono=True
+                    )
+                    feature = feature_extractor(audio).unsqueeze(
+                        0
+                    )  # Add batch dimension
+                elif encoder_type == "ced":
+                    # Get CED embeddings
                     import librosa
 
                     audio, sr = librosa.load(
@@ -317,6 +339,8 @@ def main(args):
                 f"emb-{args.openl3_embedding_size}",
             ]
         )
+    elif args.encoder_type == "ced":
+        model_name_parts.append(f"{args.ced_model_name.split('/')[-1]}")
 
     model_name_parts.extend(
         [
@@ -390,6 +414,28 @@ def main(args):
             param.requires_grad = False
         feature_dim = args.openl3_embedding_size  # Use the actual embedding size
         sample_rate = 48000
+    elif args.encoder_type == "ced":
+        print("Initializing CED feature extractor...")
+        feature_extractor = CedFeatureExtractor(
+            model_name=args.ced_model_name,
+            device=device,
+        )
+        # CED model is frozen, so ensure eval mode
+        feature_extractor.model.eval()
+        for param in feature_extractor.model.parameters():
+            param.requires_grad = False
+
+        # Determine feature dimension based on model name
+        if "tiny" in args.ced_model_name.lower():
+            feature_dim = 192
+        elif "mini" in args.ced_model_name.lower():
+            feature_dim = 256
+        elif "small" in args.ced_model_name.lower():
+            feature_dim = 384
+        else:
+            feature_dim = 768  # base model
+
+        sample_rate = 16000  # CED uses 16kHz
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
@@ -587,9 +633,10 @@ if __name__ == "__main__":
         "--encoder_type",
         type=str,
         default="clap",
-        choices=["clap", "openl3"],
+        choices=["clap", "openl3", "ced"],
         help="Type of audio encoder to use",
     )
+
     parser.add_argument(
         "--clap_model_id",
         type=str,
@@ -618,6 +665,14 @@ if __name__ == "__main__":
         default="env",
         choices=["music", "env"],
         help="Content type for OpenL3 model. Only used when encoder_type='openl3'",
+    )
+
+    # Add CED-specific arguments
+    parser.add_argument(
+        "--ced_model_name",
+        type=str,
+        default="mispeech/ced-base",
+        help="CED model name from Hugging Face. Only used when encoder_type='ced'",
     )
 
     # Model parameters

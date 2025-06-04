@@ -7,7 +7,7 @@ from pathlib import Path
 PATHS = {
     "vim_dataset": "/home/chris/dev/QBV2025/data/Vim_Sketch",
     "webdataset_output": "/home/chris/dev/QBV2025/data/vim_webdataset",
-    "clap_checkpoint": "/home/chris/dev/QBV2025/models/models/630k-audioset-fusion-best.pt",
+    "clap_checkpoint": "/home/chris/dev/QBV2025/models/630k-audioset-fusion-best.pt",
     "logs": "/home/chris/dev/QBV2025/logs/vim_clap_finetune",
     "experiment_name": "vim_sketch_finetune_v2",
 }

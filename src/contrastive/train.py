@@ -43,6 +43,28 @@ class ProjectionMLP(nn.Module):
         return self.mlp(x)
 
 
+class DualProjectionMLP(nn.Module):
+    def __init__(self, input_dim, hidden_dims, output_dim, dropout_rate=0.2):
+        super(DualProjectionMLP, self).__init__()
+        self.query_projection = ProjectionMLP(
+            input_dim, hidden_dims, output_dim, dropout_rate
+        )
+        self.reference_projection = ProjectionMLP(
+            input_dim, hidden_dims, output_dim, dropout_rate
+        )
+
+    def forward(self, query_features, reference_features):
+        query_emb = self.query_projection(query_features)
+        reference_emb = self.reference_projection(reference_features)
+        return query_emb, reference_emb
+
+    def forward_query(self, query_features):
+        return self.query_projection(query_features)
+
+    def forward_reference(self, reference_features):
+        return self.reference_projection(reference_features)
+
+
 class ContrastiveLoss(nn.Module):
     def __init__(self, temperature=0.1):  # Increased temperature
         super(ContrastiveLoss, self).__init__()
@@ -84,6 +106,7 @@ def train_epoch(
     use_wandb=False,
     feature_extractor=None,
     encoder_type=None,
+    use_dual_projection=False,
 ):
     model.train()
 
@@ -111,9 +134,12 @@ def train_epoch(
 
         optimizer.zero_grad()
 
-        # Get embeddings from the projection MLP
-        query_emb = model(query_features)
-        reference_emb = model(reference_features)
+        # Get embeddings from the projection MLP(s)
+        if use_dual_projection:
+            query_emb, reference_emb = model(query_features, reference_features)
+        else:
+            query_emb = model(query_features)
+            reference_emb = model(reference_features)
 
         # Check for NaN in embeddings
         if torch.isnan(query_emb).any() or torch.isnan(reference_emb).any():
@@ -161,7 +187,12 @@ def train_epoch(
 
 
 def validate_with_evaluate(
-    projection_mlp, feature_extractor, data_path, device, encoder_type="clap"
+    projection_mlp,
+    feature_extractor,
+    data_path,
+    device,
+    encoder_type="clap",
+    use_dual_projection=False,
 ):
     projection_mlp.eval()
     if hasattr(feature_extractor, "model"):
@@ -211,7 +242,10 @@ def validate_with_evaluate(
 
                 # Project through trained MLP
                 feature = feature.to(device)
-                embedding = projection_mlp(feature)
+                if use_dual_projection:
+                    embedding = projection_mlp.forward_reference(feature)
+                else:
+                    embedding = projection_mlp(feature)
 
                 # Store projected embedding
                 item_embeddings[item_id] = embedding.squeeze().cpu()
@@ -257,7 +291,10 @@ def validate_with_evaluate(
 
                 # Project through trained MLP
                 feature = feature.to(device)
-                embedding = projection_mlp(feature)
+                if use_dual_projection:
+                    embedding = projection_mlp.forward_query(feature)
+                else:
+                    embedding = projection_mlp(feature)
 
                 # Store projected embedding
                 query_embeddings[query_id] = embedding.squeeze().cpu()
@@ -293,7 +330,7 @@ def main(args):
     wandb_entity = os.environ.get("WANDB_ENTITY", None)
     wandb_project = os.environ.get("WANDB_PROJECT", "qvim_contrastive")
 
-    # Update the model name generation to include OpenL3 parameters
+    # Update the model name generation to include dual projection flag
     model_name_parts = [
         "SC",
     ]
@@ -327,6 +364,9 @@ def main(args):
             f"proj-{args.projection_output_dim}",
         ]
     )
+
+    if args.use_dual_projection:
+        model_name_parts.append("dual")
 
     if args.hidden_dims:
         model_name_parts.append(f"hidden-{'-'.join(map(str, args.hidden_dims))}")
@@ -470,12 +510,22 @@ def main(args):
     )
 
     print("Creating Projection MLP model...")
-    model = ProjectionMLP(
-        input_dim=feature_dim,
-        hidden_dims=args.hidden_dims,
-        output_dim=args.projection_output_dim,
-        dropout_rate=args.dropout_rate,
-    ).to(device)
+    if args.use_dual_projection:
+        print("Using dual projection MLPs for query and reference branches")
+        model = DualProjectionMLP(
+            input_dim=feature_dim,
+            hidden_dims=args.hidden_dims,
+            output_dim=args.projection_output_dim,
+            dropout_rate=args.dropout_rate,
+        ).to(device)
+    else:
+        print("Using single projection MLP for both branches")
+        model = ProjectionMLP(
+            input_dim=feature_dim,
+            hidden_dims=args.hidden_dims,
+            output_dim=args.projection_output_dim,
+            dropout_rate=args.dropout_rate,
+        ).to(device)
 
     criterion = ContrastiveLoss(temperature=args.temperature)
     model_params = list(model.parameters())
@@ -535,6 +585,7 @@ def main(args):
             args.use_wandb,
             feature_extractor,
             args.encoder_type,
+            args.use_dual_projection,
         )
         print(f"Training Loss: {epoch_loss:.4f}")
 
@@ -558,7 +609,12 @@ def main(args):
             print(f"Epoch {epoch + 1}: Validating...")
             # Pass the MLP (projection head), feature extractor, and encoder type
             val_metrics = validate_with_evaluate(
-                model, feature_extractor, args.eval_data_dir, device, args.encoder_type
+                model,
+                feature_extractor,
+                args.eval_data_dir,
+                device,
+                args.encoder_type,
+                args.use_dual_projection,
             )
             print(f"MRR: {val_metrics['mrr']:.4f}")
             print(f"Class-wise MRR: {val_metrics['class_wise_mrr']:.4f}")
@@ -591,6 +647,7 @@ def main(args):
                         "metrics": val_metrics,
                         "encoder_type": args.encoder_type,
                         "feature_dim": feature_dim,
+                        "use_dual_projection": args.use_dual_projection,
                     },
                     save_path,
                 )
@@ -734,6 +791,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--dropout_rate", type=float, default=0.2, help="Dropout rate for MLP layers"
+    )
+    parser.add_argument(
+        "--use_dual_projection",
+        action="store_true",
+        help="Use separate projection MLPs for query and reference branches",
     )
 
     # Training parameters

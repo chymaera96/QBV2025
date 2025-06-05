@@ -1,8 +1,7 @@
-import glob
 import os
 import sys
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 
 import librosa
 import numpy as np
@@ -10,7 +9,6 @@ import torch
 import torch.nn as nn
 from scipy.fftpack import dct
 from scipy.interpolate import interp1d
-from tqdm import tqdm
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -458,6 +456,124 @@ class CombinedFeatures(FeatureExtractor):
         return torch.cat(all_features, dim=-1)
 
 
+class CEDOnlyProjectedFeatures(FeatureExtractor):
+    """CED features with zeroed handcrafted slots passed through trained MLP"""
+
+    def __init__(
+        self,
+        wandb_run_path: str,
+        name: str = "ced_only_projected",
+        model_name: str = "mispeech/ced-base",
+    ):
+        super().__init__(name)
+        self.ced_extractor = CEDFeatures(name="ced_base", model_name=model_name)
+        self.mlp_projection, self.input_dim, self.ced_dim, self.handcrafted_dim = (
+            self._load_mlp_projection(wandb_run_path)
+        )
+
+    def _load_mlp_projection(self, run_path):
+        """Load MLP projection from wandb artifact and determine input structure"""
+        try:
+            api = wandb.Api()
+            run = api.run(run_path)
+
+            artifacts = run.logged_artifacts()
+            if not artifacts:
+                raise ValueError(f"No artifacts found for run {run_path}")
+
+            latest_artifact = max(artifacts, key=lambda x: x.created_at)
+            artifact_dir = latest_artifact.download()
+
+            # Find model file
+            files = os.listdir(artifact_dir)
+            model_path = None
+            for filename in files:
+                if filename.endswith(".pt"):
+                    model_path = os.path.join(artifact_dir, filename)
+                    break
+
+            if model_path is None:
+                raise FileNotFoundError(
+                    f"No .pt model file found. Available files: {files}"
+                )
+
+            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+            config = run.config
+
+            # Determine input dimensions from the first layer
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
+            first_layer_key = None
+            for key in state_dict.keys():
+                if "weight" in key and ("0." in key or "projection.0." in key):
+                    first_layer_key = key
+                    break
+
+            if first_layer_key is None:
+                raise ValueError("Could not find first layer weights in state dict")
+
+            input_dim = state_dict[first_layer_key].shape[1]
+            ced_dim = 768  # CED-base dimension
+            handcrafted_dim = input_dim - ced_dim
+
+            print(f"Detected input structure:")
+            print(f"  Total input dim: {input_dim}")
+            print(f"  CED dim: {ced_dim}")
+            print(f"  Handcrafted dim: {handcrafted_dim}")
+
+            # Create MLP
+            hidden_dims = config.get("hidden_dims", [])
+            output_dim = config.get("projection_output_dim", 128)
+            dropout_rate = config.get("dropout_rate", 0.2)
+
+            mlp = MLPProjection(input_dim, hidden_dims, output_dim, dropout_rate)
+
+            # Load state dict
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                if key.startswith("mlp."):
+                    new_key = key.replace("mlp.", "projection.")
+                    new_state_dict[new_key] = value
+                else:
+                    new_state_dict[key] = value
+
+            mlp.load_state_dict(new_state_dict)
+            mlp.eval()
+            mlp.to(self.ced_extractor.device)
+
+            for param in mlp.parameters():
+                param.requires_grad = False
+
+            print(f"Successfully loaded MLP projection from {run_path}")
+            return mlp, input_dim, ced_dim, handcrafted_dim
+
+        except Exception as e:
+            print(f"Error loading MLP projection: {e}")
+            return None, None, None, None
+
+    def forward(self, audio_paths: List[str]) -> torch.Tensor:
+        """Extract CED features and pad with zeros for handcrafted features"""
+        ced_features = self.ced_extractor.forward(audio_paths)
+
+        if self.mlp_projection is not None:
+            batch_size = ced_features.shape[0]
+
+            # Create input tensor with CED features + zero-padded handcrafted features
+            full_input = torch.zeros(
+                batch_size, self.input_dim, device=ced_features.device
+            )
+
+            # Assuming CED features come first (adjust if different)
+            full_input[:, : self.ced_dim] = ced_features.to(ced_features.device)
+            # Handcrafted features remain zero: full_input[:, self.ced_dim:] = 0
+
+            full_input = full_input.to(self.ced_extractor.device)
+            with torch.no_grad():
+                projected_features = self.mlp_projection(full_input)
+            return projected_features.cpu()
+        else:
+            return ced_features
+
+
 class RetrievalSystem:
     """System for testing feature combinations on retrieval tasks"""
 
@@ -502,7 +618,7 @@ class RetrievalSystem:
         return evaluate_qvim_system(self.compute_similarities, data_path=data_path)
 
 
-def main():
+if __name__ == "__main__":
     """Main function for testing different feature combinations"""
 
     # Define individual feature extractors
@@ -514,14 +630,19 @@ def main():
         name="acoustic_rms", use_rms=True, use_pitch=False, use_spectral_centroid=False
     )
 
-    dct_full = DCTFeatures(acoustic_full, num_dct_coeffs=16, name="dct_full")
-    dct_rms = DCTFeatures(acoustic_rms_only, num_dct_coeffs=16, name="dct_rms")
+    dct_full = DCTFeatures(acoustic_full, num_dct_coeffs=8, name="dct_full")
+    dct_rms = DCTFeatures(acoustic_rms_only, num_dct_coeffs=8, name="dct_rms")
 
     ced_base = CEDFeatures(name="ced_base")
 
     # CED with MLP projection (replace with your actual wandb run path)
     ced_projected = CEDProjectedFeatures(
         wandb_run_path="cplachouras/qvim/3dpe2sjw", name="ced_projected"
+    )
+
+    # NEW: CED-only features through the combined MLP
+    ced_only_projected = CEDOnlyProjectedFeatures(
+        wandb_run_path="cplachouras/qvim/v1fgvxhf", name="ced_only_projected"
     )
 
     # Test different combinations
@@ -533,6 +654,7 @@ def main():
         ("DCT (Full)", dct_full),
         ("CED Base", ced_base),
         ("CED Projected", ced_projected),
+        ("CED Only (through combined MLP)", ced_only_projected),
         # Combinations
         ("Acoustic + CED", CombinedFeatures([acoustic_full, ced_base], "acoustic+ced")),
         ("DCT + CED", CombinedFeatures([dct_full, ced_base], "dct+ced")),
@@ -580,7 +702,3 @@ def main():
             print(f"{config_name}: {metrics}")
         else:
             print(f"{config_name}: FAILED")
-
-
-if __name__ == "__main__":
-    main()

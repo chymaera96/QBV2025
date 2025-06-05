@@ -22,6 +22,7 @@ from .features import (
     CedPlusFeaturesExtractor,
     CLAPFeatureExtractor,
     OpenL3FeatureExtractor,
+    PaSSTFeatureExtractor,
 )
 
 
@@ -74,9 +75,26 @@ class ContrastiveLoss(nn.Module):
 
 
 def train_epoch(
-    model, dataloader, criterion, optimizer, device, epoch=0, use_wandb=False
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+    epoch=0,
+    use_wandb=False,
+    feature_extractor=None,
+    encoder_type=None,
 ):
     model.train()
+
+    # Set feature extractor to train mode if using LoRA
+    if (
+        encoder_type == "passt"
+        and hasattr(feature_extractor, "use_lora")
+        and feature_extractor.use_lora
+    ):
+        feature_extractor.model.train()
+
     running_loss = 0.0
 
     progress_bar = tqdm(dataloader, desc=f"Epoch {epoch + 1} Training")
@@ -295,6 +313,14 @@ def main(args):
     elif args.encoder_type == "ced_plus":
         model_name_parts.append(f"feat{args.ced_model_name.split('/')[-1]}")
 
+    elif args.encoder_type == "passt":
+        lora_suffix = (
+            f"lora-r{args.passt_lora_r}-a{args.passt_lora_alpha}"
+            if args.passt_use_lora
+            else "frozen"
+        )
+        model_name_parts.extend(["passt", lora_suffix])
+
     model_name_parts.extend(
         [
             f"aug-{args.augment}",
@@ -410,6 +436,18 @@ def main(args):
         # Calculate combined feature dimension
         feature_dim = feature_dim + 50 * 3
         sample_rate = 16000
+    elif args.encoder_type == "passt":
+        print("Initializing PaSST feature extractor...")
+        feature_extractor = PaSSTFeatureExtractor(
+            device=device,
+            use_lora=args.passt_use_lora,
+            lora_r=args.passt_lora_r,
+            lora_alpha=args.passt_lora_alpha,
+        )
+
+        # PaSST backbone outputs 768-dimensional features
+        feature_dim = 768
+        sample_rate = 32000  # PaSST expects 32kHz
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
@@ -420,6 +458,7 @@ def main(args):
         seed=args.seed,
         augment=args.augment,
         max_transforms=args.max_transforms,
+        augmentations=args.augmentations,
     )
 
     train_loader = DataLoader(
@@ -439,8 +478,16 @@ def main(args):
     ).to(device)
 
     criterion = ContrastiveLoss(temperature=args.temperature)
+    model_params = list(model.parameters())
+    if args.encoder_type == "passt" and args.passt_use_lora:
+        model_params.extend(
+            [p for p in feature_extractor.model.parameters() if p.requires_grad]
+        )
+        print(
+            f"Including {sum(p.numel() for p in feature_extractor.model.parameters() if p.requires_grad):,} LoRA parameters in optimizer"
+        )
     optimizer = optim.AdamW(
-        model.parameters(),
+        model_params,
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
         betas=(0.9, 0.999),
@@ -479,7 +526,15 @@ def main(args):
         print(f"\nEpoch {epoch + 1}/{args.num_epochs}")
 
         epoch_loss = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch, args.use_wandb
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            epoch,
+            args.use_wandb,
+            feature_extractor,
+            args.encoder_type,
         )
         print(f"Training Loss: {epoch_loss:.4f}")
 
@@ -605,7 +660,7 @@ if __name__ == "__main__":
         "--encoder_type",
         type=str,
         default="clap",
-        choices=["clap", "openl3", "ced", "ced_plus"],
+        choices=["clap", "openl3", "ced", "ced_plus", "passt"],
         help="Type of audio encoder to use",
     )
     parser.add_argument(
@@ -645,7 +700,24 @@ if __name__ == "__main__":
         default="mispeech/ced-base",
         help="CED model name from Hugging Face. Only used when encoder_type='ced'",
     )
-
+    # Add PaSST-specific arguments
+    parser.add_argument(
+        "--passt_use_lora",
+        action="store_true",
+        help="Use LoRA fine-tuning for PaSST model. If False, model is fully frozen. Only used when encoder_type='passt'",
+    )
+    parser.add_argument(
+        "--passt_lora_r",
+        type=int,
+        default=16,
+        help="LoRA rank for PaSST model. Only used when encoder_type='passt' and passt_use_lora=True",
+    )
+    parser.add_argument(
+        "--passt_lora_alpha",
+        type=int,
+        default=32,
+        help="LoRA alpha for PaSST model. Only used when encoder_type='passt' and passt_use_lora=True",
+    )
     # Model parameters
     parser.add_argument(
         "--hidden_dims",
@@ -710,6 +782,16 @@ if __name__ == "__main__":
         type=int,
         default=1,
         help="Maximum number of augmentations to apply if augmentation is enabled",
+    )
+    parser.add_argument(
+        "--augmentations",
+        nargs="+",
+        type=str,
+        default=None,
+        choices=["shift", "gain", "pitchshift", "timestretch", "framelevelcorruption"],
+        help="List of augmentations to use. Available: shift, gain, pitchshift, timestretch, framelevelcorruption. "
+        "If framelevelcorruption is specified, all three variants (duplicate, remove, silence) are included. "
+        "If not specified, all augmentations are used by default.",
     )
 
     # System parameters

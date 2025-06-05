@@ -19,13 +19,16 @@ class VimSketch(torch.utils.data.Dataset):
         seed=42,
         augment=None,  # None, "query", "reference", or "both"
         max_transforms=1,
+        augmentations=None,  # List of augmentation names
     ):
         self.root_dir = root_dir
         self.sample_rate = sample_rate
         self.feature_extractor = feature_extractor
         self.augment_mode = augment
         self.augmenter = (
-            Augment(sample_rate, max_transforms) if self.augment_mode else None
+            Augment(sample_rate, max_transforms, augmentations)
+            if self.augment_mode
+            else None
         )
         random.seed(seed)
         np.random.seed(seed)  # Ensure numpy's random choices are also seeded

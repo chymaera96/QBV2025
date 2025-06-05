@@ -8,20 +8,62 @@ from audiomentations.core.transforms_interface import BaseWaveformTransform
 
 
 class Augment(nn.Module):
-    def __init__(self, sample_rate, max_transforms=1):
+    def __init__(self, sample_rate, max_transforms=1, augmentations=None):
         super(Augment, self).__init__()
 
         self.max_transforms = max_transforms
         self.sample_rate = sample_rate
-        self.train_transform_options = [
-            Shift(min_shift=-0.2, max_shift=0.2, p=1.0),
-            Gain(min_gain_db=-10, max_gain_db=10, p=1.0),
-            PitchShift(min_semitones=-6, max_semitones=6, p=1.0),
-            TimeStretch(min_rate=0.67, max_rate=1.33, p=1.0),
-            FrameLevelCorruption(remove_prob=0.0, silence_prob=0.0),
-            FrameLevelCorruption(duplicate_prob=0.0, silence_prob=0.0),
-            FrameLevelCorruption(duplicate_prob=0.0, remove_prob=0.0),
-        ]
+
+        # Default augmentations if none specified
+        if augmentations is None:
+            augmentations = [
+                "shift",
+                "gain",
+                "pitchshift",
+                "timestretch",
+                "framelevelcorruption",
+            ]
+
+        self.train_transform_options = self._build_transform_options(augmentations)
+
+    def _build_transform_options(self, augmentations):
+        """Build transform options based on specified augmentations"""
+        transform_options = []
+
+        for aug_name in augmentations:
+            aug_name = aug_name.lower()
+
+            if aug_name == "shift":
+                transform_options.append(Shift(min_shift=-0.2, max_shift=0.2, p=1.0))
+            elif aug_name == "gain":
+                transform_options.append(Gain(min_gain_db=-10, max_gain_db=10, p=1.0))
+            elif aug_name == "pitchshift":
+                transform_options.append(
+                    PitchShift(min_semitones=-6, max_semitones=6, p=1.0)
+                )
+            elif aug_name == "timestretch":
+                transform_options.append(
+                    TimeStretch(min_rate=0.67, max_rate=1.33, p=1.0)
+                )
+            elif aug_name == "framelevelcorruption":
+                # Add all three variants of FrameLevelCorruption
+                transform_options.extend(
+                    [
+                        FrameLevelCorruption(
+                            duplicate_prob=0.1, remove_prob=0.0, silence_prob=0.0
+                        ),
+                        FrameLevelCorruption(
+                            duplicate_prob=0.0, remove_prob=0.1, silence_prob=0.0
+                        ),
+                        FrameLevelCorruption(
+                            duplicate_prob=0.0, remove_prob=0.0, silence_prob=0.1
+                        ),
+                    ]
+                )
+            else:
+                print(f"Warning: Unknown augmentation '{aug_name}' ignored")
+
+        return transform_options
 
     def apply_random_transforms(self, audio, transform_options, max_transforms):
         if len(transform_options) == 0 or max_transforms <= 0:

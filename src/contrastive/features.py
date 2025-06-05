@@ -2,14 +2,15 @@ import json
 import os
 import sys
 
+import librosa
 import numpy as np
 import torch
-import torchaudio
 import torchopenl3
 from ced_model.feature_extraction_ced import (
     CedFeatureExtractor as HFCedFeatureExtractor,
 )
 from ced_model.modeling_ced import CedForAudioClassification
+from torch import nn
 
 # Add project root to Python path if needed
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -260,10 +261,6 @@ class CedFeatureExtractor:
             pooled_features = last_hidden_state.mean(dim=0).squeeze(0)
 
             return pooled_features.cpu()
-
-
-import librosa
-from scipy import stats
 
 
 class CedPlusFeaturesExtractor:
@@ -520,3 +517,177 @@ class CedPlusFeaturesExtractor:
             )
 
             return combined_features
+
+
+class PaSSTFeatureExtractor:
+    def __init__(self, device="cuda", use_lora=False, lora_r=16, lora_alpha=32):
+        self.device = device
+        self.sample_rate = 32000  # PaSST expects 32kHz audio
+        self.use_lora = use_lora
+
+        try:
+            from hear21passt.base import get_basic_model
+
+            # Initialize PaSST model
+            self.model = PaSSTModel(
+                use_lora=use_lora, lora_r=lora_r, lora_alpha=lora_alpha
+            ).to(device)
+
+            # Set to eval mode initially (will be set to train mode during training if using LoRA)
+            if not use_lora:
+                self.model.eval()
+                # Freeze all parameters for fully frozen mode
+                for param in self.model.parameters():
+                    param.requires_grad = False
+
+        except ImportError as e:
+            raise ImportError(
+                "hear21passt not found. Please install it: pip install hear21passt"
+            ) from e
+
+    def __call__(self, audio_tensor):
+        """
+        Extract PaSST features directly from audio tensor
+
+        Args:
+            audio_tensor: Audio tensor (1D tensor of audio samples)
+
+        Returns:
+            Feature tensor (768-dimensional from PaSST backbone)
+        """
+        # Only use no_grad if fully frozen
+        context = torch.no_grad() if not self.use_lora else torch.enable_grad()
+
+        with context:
+            if isinstance(audio_tensor, np.ndarray):
+                audio_tensor = torch.from_numpy(audio_tensor).float()
+            else:
+                audio_tensor = audio_tensor.float()
+
+            # Ensure mono audio
+            if audio_tensor.ndim > 1:
+                audio_tensor = audio_tensor.mean(dim=0)
+
+            # PaSST expects exactly 320000 samples (10 seconds at 32kHz)
+            expected_length = 320000
+
+            if len(audio_tensor) < expected_length:
+                # Pad with zeros if audio is shorter
+                padding = expected_length - len(audio_tensor)
+                audio_tensor = torch.nn.functional.pad(audio_tensor, (0, padding))
+            elif len(audio_tensor) > expected_length:
+                # Truncate if audio is longer
+                audio_tensor = audio_tensor[:expected_length]
+
+            # Add batch dimension and move to device
+            audio_tensor = audio_tensor.unsqueeze(0).to(self.device)
+
+            # Extract features
+            features = self.model(audio_tensor)
+
+            return (
+                features.squeeze(0).cpu() if not self.use_lora else features.squeeze(0)
+            )
+
+
+class PaSSTModel(nn.Module):
+    def __init__(self, use_lora=False, lora_r=16, lora_alpha=32):
+        super().__init__()
+        from hear21passt.base import get_basic_model
+
+        self.backbone = get_basic_model(mode="embed_only")
+        self.use_lora = use_lora
+
+        # Remove classifier heads
+        self.backbone.net.head = nn.Identity()
+        self.backbone.net.head_dist = nn.Identity()
+        self.backbone.net.pre_logits = nn.Identity()
+
+        if use_lora:
+            self._add_lora_layers(lora_r, lora_alpha)
+        else:
+            # Freeze all parameters for fully frozen mode
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+
+    def _add_lora_layers(self, r, alpha):
+        """Add LoRA layers to attention modules in the transformer blocks"""
+        try:
+            import loralib as lora
+        except ImportError:
+            raise ImportError(
+                "loralib not found. Please install it: pip install loralib"
+            )
+
+        # Freeze all parameters first
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        # Replace attention layers with LoRA versions
+        for block in self.backbone.net.blocks:
+            # Replace query, key, value projections with LoRA
+            attn = block.attn
+
+            # Get original dimensions
+            embed_dim = attn.qkv.in_features
+
+            # Replace qkv projection with LoRA version
+            original_qkv = attn.qkv
+            lora_qkv = lora.Linear(
+                embed_dim,
+                embed_dim * 3,  # qkv combined
+                r=r,
+                lora_alpha=alpha,
+                bias=original_qkv.bias is not None,
+            )
+
+            # Copy original weights
+            lora_qkv.weight.data = original_qkv.weight.data.clone()
+            if original_qkv.bias is not None:
+                lora_qkv.bias.data = original_qkv.bias.data.clone()
+
+            # Freeze the original linear layer weights
+            lora_qkv.weight.requires_grad = False
+            if lora_qkv.bias is not None:
+                lora_qkv.bias.requires_grad = False
+
+            # Replace the layer
+            attn.qkv = lora_qkv
+
+            # Replace projection layer with LoRA version if it exists
+            if hasattr(attn, "proj") and attn.proj is not None:
+                original_proj = attn.proj
+                lora_proj = lora.Linear(
+                    embed_dim,
+                    embed_dim,
+                    r=r,
+                    lora_alpha=alpha,
+                    bias=original_proj.bias is not None,
+                )
+
+                # Copy original weights
+                lora_proj.weight.data = original_proj.weight.data.clone()
+                if original_proj.bias is not None:
+                    lora_proj.bias.data = original_proj.bias.data.clone()
+
+                # Freeze the original weights
+                lora_proj.weight.requires_grad = False
+                if lora_proj.bias is not None:
+                    lora_proj.bias.requires_grad = False
+
+                attn.proj = lora_proj
+
+        print(f"Added LoRA layers with r={r}, alpha={alpha}")
+
+        # Print number of trainable parameters
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(f"Total parameters: {total_params:,}")
+        print(
+            f"Trainable parameters: {trainable_params:,} ({100 * trainable_params / total_params:.2f}%)"
+        )
+
+    def forward(self, x):
+        assert x.shape[1] == 320000, f"Expected input shape [B, 320000], got {x.shape}"
+        features = self.backbone(x)
+        return features  # Return raw 768-dim features, no projection

@@ -252,7 +252,7 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         filename = self.file_list[index]
-        filepath = os.path.join(self.dataset_dir, 'audio', filename)
+        filepath = os.path.join(self.dataset_dir, filename)
 
         waveform = self.load_audio(filepath)
         ref_1 = self.augment(waveform)

@@ -6,7 +6,6 @@ import copy
 from copy import deepcopy
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
 import pytorch_lightning as pl
@@ -14,12 +13,12 @@ from pytorch_lightning.strategies import DDPStrategy
 
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
-from wandb import Settings
 
 from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.projection import PaSSTSelectiveFineTune
+from qvim_mn_baseline.mn.model import get_model as get_mobilenet
+from qvim_mn_baseline.utils import NAME_TO_WIDTH
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
 
 class QVIMModule(pl.LightningModule):
@@ -31,52 +30,57 @@ class QVIMModule(pl.LightningModule):
         super().__init__()
         self.config = config
 
-        # self.mel = AugmentMelSTFT(
-        #     n_mels=config.n_mels,
-        #     sr=config.sample_rate,
-        #     win_length=config.window_size,
-        #     hopsize=config.hop_size,
-        #     n_fft=config.n_fft,
-        #     freqm=config.freqm,
-        #     timem=config.timem,
-        #     fmin=config.fmin,
-        #     fmax=config.fmax,
-        #     fmin_aug_range=config.fmin_aug_range,
-        #     fmax_aug_range=config.fmax_aug_range
-        # )
+        self.mel = AugmentMelSTFT(
+            n_mels=config.n_mels,
+            sr=config.sample_rate,
+            win_length=config.window_size,
+            hopsize=config.hop_size,
+            n_fft=config.n_fft,
+            freqm=config.freqm,
+            timem=config.timem,
+            fmin=config.fmin,
+            fmax=config.fmax,
+            fmin_aug_range=config.fmin_aug_range,
+            fmax_aug_range=config.fmax_aug_range
+        )
 
-        self.encoder = PaSSTSelectiveFineTune(projection_dim=config.proj_dim)
+        # get the to be specified mobilenetV3 as encoder
+        self.imitation_encoder = get_mobilenet(
+            width_mult=NAME_TO_WIDTH(config.pretrained_name),
+            pretrained_name=config.pretrained_name
+        )
+
+        self.reference_encoder = deepcopy(self.imitation_encoder)
+
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
 
         self.validation_output = []
 
     def forward(self, queries, items):
-        y_imit = self.forward_imitation(queries)
-        y_ref = self.forward_reference(items)
-        return y_imit, y_ref
+        return self.forward_imitation(queries), self.forward_reference(items)
 
     def forward_imitation(self, imitations):
-        # with torch.no_grad():
-        #     imitations = self.mel(imitations).unsqueeze(1)
-        # y_imitation = self.imitation_encoder(imitations)
-        y_imitation = self.encoder(imitations)
-        y_imitation = F.normalize(y_imitation, dim=1)
+        with torch.no_grad():
+            imitations = self.mel(imitations).unsqueeze(1)
+        y_imitation = self.imitation_encoder(imitations)[1]
+        y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
         return y_imitation
 
     def forward_reference(self, items):
-        # y_reference = self.reference_encoder(items)
-        y_reference = self.encoder(items)
-        y_reference = F.normalize(y_reference, dim=1)
+        with torch.no_grad():
+            items = self.mel(items).unsqueeze(1)
+        y_reference = self.reference_encoder(items)[1]
+        y_reference = torch.nn.functional.normalize(y_reference, dim=1)
         return y_reference
 
     def training_step(self, batch, batch_idx):
-        # self.encoder.mel.train()
+
         self.lr_scheduler_step(batch_idx)
 
-        z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
+        y_imitation, y_reference = self.forward(batch['imitation'], batch['reference'])
 
-        C = torch.matmul(z_imit, z_ref.T) 
+        C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)
 
         C_text = torch.log_softmax(C, dim=1)
@@ -87,16 +91,14 @@ class QVIMModule(pl.LightningModule):
 
         loss = - C_text[torch.where(I)].mean()
 
-        self.log('train/loss', loss, on_step=True, on_epoch=True, logger=True)
-        self.log('train/tau', self.tau, on_step=True, on_epoch=True, logger=True)
+        self.log('train/loss', loss, )
+        self.log('train/tau', self.tau)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # self.mel.eval()
-        y_imitation = self.forward_imitation(batch['imitation'])
-        y_reference = self.forward_reference(batch['reference']) 
-        # z_imit, z_ref = self.forward(batch['imitation'], batch['reference'])
+
+        y_imitation, y_reference = self.forward(batch['imitation'], batch['reference'])
 
         C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)
@@ -182,40 +184,31 @@ class QVIMModule(pl.LightningModule):
 
 
     def lr_scheduler_step(self, batch_idx):
+
         steps_per_epoch = self.trainer.num_training_batches
+
+        min_lr = self.config.min_lr
+        max_lr = self.config.max_lr
         current_step = self.current_epoch * steps_per_epoch + batch_idx
+        warmup_steps = self.config.warmup_epochs * steps_per_epoch
+        total_steps = (self.config.warmup_epochs + self.config.rampdown_epochs) * steps_per_epoch
+        decay_steps = total_steps - warmup_steps
 
-        warmup_steps = self.config.warmup_steps
-        if warmup_steps is None:
-            warmup_epochs = self.config.n_epochs * self.config.warmup_percent
-            warmup_steps = int(warmup_epochs * steps_per_epoch)
-
-        rampdown_epochs = self.config.n_epochs * self.config.rampdown_percent
-        total_decay_steps = int((rampdown_epochs * steps_per_epoch))
-
-        # If no warmup
-        if warmup_steps == 0:
-            lr = self.config.max_lr
-            if current_step > total_decay_steps:
-                lr = self.config.min_lr
-            else:
-                decay_progress = current_step / total_decay_steps
-                lr = self.config.min_lr + (self.config.max_lr - self.config.min_lr) * 0.5 * (1 + math.cos(math.pi * decay_progress))
-
-        # If using warmup
-        elif current_step < warmup_steps:
-            lr = self.config.min_lr + (self.config.max_lr - self.config.min_lr) * (current_step / warmup_steps)
-        elif current_step < warmup_steps + total_decay_steps:
-            decay_progress = (current_step - warmup_steps) / total_decay_steps
-            lr = self.config.min_lr + (self.config.max_lr - self.config.min_lr) * 0.5 * (1 + math.cos(math.pi * decay_progress))
+        if current_step < warmup_steps:
+            # Linear warmup
+            lr = min_lr + (max_lr - min_lr) * (current_step / warmup_steps)
+        elif current_step < total_steps:
+            # Cosine decay
+            decay_progress = (current_step - warmup_steps) / decay_steps
+            lr = min_lr + (max_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * decay_progress))
         else:
-            lr = self.config.min_lr
+            # Constant learning rate
+            lr = min_lr
 
         for param_group in self.optimizers(use_pl_optimizer=False).param_groups:
             param_group['lr'] = lr
 
         self.log('train/lr', lr, sync_dist=True)
-
 
 
 def train(config):
@@ -228,10 +221,8 @@ def train(config):
     wandb_logger = WandbLogger(
         project=config.project,
         id=config.id, # added
-        settings=Settings(init_timeout=300),
         config=config
     )
-    wandb_logger.experiment.config.update(vars(config))
 
     train_ds = VimSketchDataset(
         os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
@@ -281,8 +272,7 @@ def train(config):
         callbacks=callbacks,
         strategy=DDPStrategy(find_unused_parameters=True), # fix for multi-GPU support
         sync_batchnorm=config.sync_batchnorm, # fix for multi-GPU support (default: False for quicker experiment)
-        precision=config.precision,
-        accumulate_grad_batches=config.acc_grad
+        precision=config.precision
     )
 
     trainer.validate(
@@ -316,10 +306,8 @@ if __name__ == '__main__':
                         help="Path to the data sets.")
 
     # Encoder architecture
-    # parser.add_argument('--pretrained_name', type=str, default="mn10_as",
-    #                     help="Pretrained model name for transfer learning.")
-    parser.add_argument('--proj_dim', type=int, default=512,
-                        help="Projection dimension for the model.")
+    parser.add_argument('--pretrained_name', type=str, default="mn10_as",
+                        help="Pretrained model name for transfer learning.")
 
     # Training
     parser.add_argument('--random_seed', type=int, default=None,
@@ -330,21 +318,15 @@ if __name__ == '__main__':
                         help="Total number of training epochs.")
     parser.add_argument('--weight_decay', type=float, default=0.,
                         help="L2 weight regularization to prevent overfitting.")
-    parser.add_argument('--max_lr', type=float, default=6.5e-5,
+    parser.add_argument('--max_lr', type=float, default=0.0003,
                         help="Maximum learning rate.")
-    parser.add_argument('--min_lr', type=float, default=1.0e-5,
+    parser.add_argument('--min_lr', type=float, default=0.0001,
                         help="Final learning rate at the end of training.")
-    # parser.add_argument('--warmup_epochs', type=int, default=1,
-    #                    help="Number of warm-up epochs where learning rate increases gradually.")
-    # parser.add_argument('--rampdown_epochs', type=int, default=7,
-    #                    help="Duration (in epochs) for learning rate ramp-down.")
-    parser.add_argument('--warmup_percent', type=float, default=0.05, # modified to use percent
-                    help="Fraction of total epochs for warmup (e.g., default = 0.1 = 10%)")
-    parser.add_argument('--warmup_steps', type=int, default=None,
-                        help="Number of steps for learning rate warmup. If None, use warmup_percent instead.")
-    parser.add_argument('--rampdown_percent', type=float, default=0.8, # modified to use percent
-                    help="Fraction of total epochs for cosine rampdown (e.g., default = 0.8 = 80%)")
-    parser.add_argument('--initial_tau', type=float, default=0.1,
+    parser.add_argument('--warmup_epochs', type=int, default=1,
+                        help="Number of warm-up epochs where learning rate increases gradually.")
+    parser.add_argument('--rampdown_epochs', type=int, default=7,
+                        help="Duration (in epochs) for learning rate ramp-down.")
+    parser.add_argument('--initial_tau', type=float, default=0.07,
                         help="Temperature parameter for the loss function.")
     parser.add_argument('--tau_trainable', default=False, action='store_true',
                         help="make tau trainable or not.")
@@ -352,8 +334,6 @@ if __name__ == '__main__':
                         help="precision (default='bf16-mixed') {32, 16, bf16, bf16-mixed}")
     parser.add_argument('--sync_batchnorm', action='store_true',
                         help="Enable synchronized batch normalization across GPUs. Default is False.")
-    parser.add_argument('--acc_grad', type=int, default=1,
-                        help="Accumulate gradient batches, default=1")
 
     # Preprocessing
     parser.add_argument('--duration', type=float, default=10.0,
@@ -368,7 +348,7 @@ if __name__ == '__main__':
                         help="Hop length for STFT in samples.")
     parser.add_argument('--n_fft', type=int, default=1024,
                         help="Number of FFT bins for spectral analysis.")
-    parser.add_argument('--n_mels', type=int, default=32,
+    parser.add_argument('--n_mels', type=int, default=128,
                         help="Number of mel filter banks for Mel spectrogram conversion.")
     parser.add_argument('--freqm', type=int, default=2,
                         help="Frequency masking parameter for spectrogram augmentation.")

@@ -4,6 +4,7 @@ import librosa
 import numpy as np
 import pandas as pd
 import torch
+import copy
 
 from hc_baseline.modules.augmentations import Augment
 
@@ -256,7 +257,7 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
 
         waveform = self.load_audio(filepath)
         ref_1 = self.augment(waveform)
-        ref_2 = self.augment(waveform.clone())
+        ref_2 = self.augment(copy.deepcopy(waveform))
         
         return {
             'reference_1': self.pad_or_truncate__(ref_1, self.sample_rate),

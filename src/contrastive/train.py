@@ -207,7 +207,10 @@ def validate_with_evaluate(
     encoder_type="clap",
     use_dual_projection=False,
 ):
-    projection_mlp.eval()
+    # Handle the case where projection_mlp is None (for ced_finetune)
+    if projection_mlp is not None:
+        projection_mlp.eval()
+
     if hasattr(feature_extractor, "model"):
         feature_extractor.model.eval()
 
@@ -257,10 +260,14 @@ def validate_with_evaluate(
                 feature = feature.to(device)
                 if encoder_type == "ced_finetune":
                     embedding = feature  # Already projected
-                elif use_dual_projection:
-                    embedding = projection_mlp.forward_reference(feature)
+                elif projection_mlp is not None:
+                    if use_dual_projection:
+                        embedding = projection_mlp.forward_reference(feature)
+                    else:
+                        embedding = projection_mlp(feature)
                 else:
-                    embedding = projection_mlp(feature)
+                    # Fallback case - shouldn't happen but just in case
+                    embedding = feature
 
                 # Store projected embedding
                 item_embeddings[item_id] = embedding.squeeze().cpu()
@@ -308,10 +315,14 @@ def validate_with_evaluate(
                 feature = feature.to(device)
                 if encoder_type == "ced_finetune":
                     embedding = feature  # Already projected
-                elif use_dual_projection:
-                    embedding = projection_mlp.forward_query(feature)
+                elif projection_mlp is not None:
+                    if use_dual_projection:
+                        embedding = projection_mlp.forward_query(feature)
+                    else:
+                        embedding = projection_mlp(feature)
                 else:
-                    embedding = projection_mlp(feature)
+                    # Fallback case - shouldn't happen but just in case
+                    embedding = feature
 
                 # Store projected embedding
                 query_embeddings[query_id] = embedding.squeeze().cpu()

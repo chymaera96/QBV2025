@@ -519,6 +519,126 @@ class CedPlusFeaturesExtractor:
             return combined_features
 
 
+class CedFineTuneFeatureExtractor:
+    def __init__(
+        self, model_name="mispeech/ced-tiny", device="cuda", projection_dim=512
+    ):
+        self.device = device
+        self.model_name = model_name
+        self.sample_rate = 16000  # CED expects 16kHz audio
+        self.projection_dim = projection_dim
+
+        try:
+            # Load the feature extractor and model
+            self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+            self.model = CedForAudioClassification.from_pretrained(model_name).to(
+                self.device
+            )
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Error loading model {model_name}: {e}")
+            print("Trying to clear cache and reload...")
+
+            # Clear the cached files and try again
+            import shutil
+            from pathlib import Path
+
+            cache_dir = (
+                Path.home()
+                / ".cache"
+                / "huggingface"
+                / "hub"
+                / f"models--{model_name.replace('/', '--')}"
+            )
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+                print(f"Cleared cache directory: {cache_dir}")
+
+            # Try loading again
+            self.feature_extractor = HFCedFeatureExtractor.from_pretrained(model_name)
+            self.model = CedForAudioClassification.from_pretrained(model_name).to(
+                self.device
+            )
+
+        # Determine encoder feature dimension based on model name
+        if "tiny" in model_name.lower():
+            encoder_dim = 192
+        elif "mini" in model_name.lower():
+            encoder_dim = 256
+        elif "small" in model_name.lower():
+            encoder_dim = 384
+        else:
+            encoder_dim = 768
+
+        # Replace the classification head with a projection head for contrastive learning
+        self.model.outputlayer = nn.Sequential(
+            nn.LayerNorm(encoder_dim, eps=1e-05), nn.Linear(encoder_dim, projection_dim)
+        ).to(self.device)
+
+        # Enable training mode - all parameters are trainable
+        self.model.train()
+        for param in self.model.parameters():
+            param.requires_grad = True
+
+        print(
+            f"CED model loaded with {sum(p.numel() for p in self.model.parameters()):,} total parameters"
+        )
+        print(
+            f"All parameters are trainable: {sum(p.numel() for p in self.model.parameters() if p.requires_grad):,}"
+        )
+
+    def __call__(self, audio_tensor):
+        """
+        Extract features and project through the fine-tuned CED model
+
+        Args:
+            audio_tensor: Audio tensor (1D tensor of audio samples)
+
+        Returns:
+            Projected feature tensor (projection_dim dimensional) - RETURNED ON CPU
+        """
+        if isinstance(audio_tensor, torch.Tensor):
+            audio_np = audio_tensor.cpu().numpy()
+        else:
+            audio_np = audio_tensor
+
+        # Ensure mono audio
+        if audio_np.ndim > 1:
+            audio_np = audio_np.mean(axis=0)
+
+        # Ensure minimum length for CED
+        if audio_np.ndim == 1 and len(audio_np) < self.sample_rate / 4:
+            audio_np = np.pad(
+                audio_np,
+                (0, int((self.sample_rate / 4)) - len(audio_np)),
+                mode="constant",
+            )
+
+        # Prepare inputs using the feature extractor
+        inputs = self.feature_extractor(
+            audio_np, sampling_rate=self.sample_rate, return_tensors="pt"
+        )
+
+        # Move inputs to device
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        # Get encoder outputs
+        encoder_outputs = self.model.encoder(**inputs)
+
+        # Get the last hidden state and apply global average pooling
+        last_hidden_state = encoder_outputs["logits"][
+            -1
+        ]  # Shape: [seq_len, hidden_dim]
+        pooled_features = last_hidden_state.mean(dim=0)  # Shape: [hidden_dim]
+
+        # Apply the projection head
+        projected_features = self.model.outputlayer(
+            pooled_features
+        )  # Shape: [projection_dim]
+
+        # Return on CPU to avoid pinning issues with DataLoader
+        return projected_features.cpu()
+
+
 class PaSSTFeatureExtractor:
     def __init__(self, device="cuda", use_lora=False, lora_r=16, lora_alpha=32):
         self.device = device

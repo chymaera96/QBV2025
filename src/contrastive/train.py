@@ -19,6 +19,7 @@ from .dataset import VimSketch
 from .evaluate import evaluate_qvim_system
 from .features import (
     CedFeatureExtractor,
+    CedFineTuneFeatureExtractor,
     CedPlusFeaturesExtractor,
     CLAPFeatureExtractor,
     OpenL3FeatureExtractor,
@@ -108,14 +109,17 @@ def train_epoch(
     encoder_type=None,
     use_dual_projection=False,
 ):
-    model.train()
+    if model is not None:
+        model.train()
 
-    # Set feature extractor to train mode if using LoRA
+    # Set feature extractor to train mode if using LoRA or fine-tuning
     if (
         encoder_type == "passt"
         and hasattr(feature_extractor, "use_lora")
         and feature_extractor.use_lora
     ):
+        feature_extractor.model.train()
+    elif encoder_type == "ced_finetune":
         feature_extractor.model.train()
 
     running_loss = 0.0
@@ -134,8 +138,12 @@ def train_epoch(
 
         optimizer.zero_grad()
 
-        # Get embeddings from the projection MLP(s)
-        if use_dual_projection:
+        # Get embeddings
+        if encoder_type == "ced_finetune":
+            # Features are already projected by the CED model
+            query_emb = query_features
+            reference_emb = reference_features
+        elif use_dual_projection:
             query_emb, reference_emb = model(query_features, reference_features)
         else:
             query_emb = model(query_features)
@@ -168,7 +176,12 @@ def train_epoch(
         loss.backward()
 
         # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        if encoder_type == "ced_finetune":
+            torch.nn.utils.clip_grad_norm_(
+                feature_extractor.model.parameters(), max_norm=1.0
+            )
+        elif model is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         optimizer.step()
 
@@ -229,7 +242,7 @@ def validate_with_evaluate(
                     feature = feature_extractor(audio).unsqueeze(
                         0
                     )  # Add batch dimension
-                elif encoder_type in ["ced", "ced_plus"]:
+                elif encoder_type in ["ced", "ced_plus", "ced_finetune"]:
                     # Get CED or CED+Features embeddings
                     import librosa
 
@@ -240,9 +253,11 @@ def validate_with_evaluate(
                         0
                     )  # Add batch dimension
 
-                # Project through trained MLP
+                # Project through trained MLP (skip for ced_finetune as it's already projected)
                 feature = feature.to(device)
-                if use_dual_projection:
+                if encoder_type == "ced_finetune":
+                    embedding = feature  # Already projected
+                elif use_dual_projection:
                     embedding = projection_mlp.forward_reference(feature)
                 else:
                     embedding = projection_mlp(feature)
@@ -278,7 +293,7 @@ def validate_with_evaluate(
                     feature = feature_extractor(audio).unsqueeze(
                         0
                     )  # Add batch dimension
-                elif encoder_type in ["ced", "ced_plus"]:
+                elif encoder_type in ["ced", "ced_plus", "ced_finetune"]:
                     # Get CED or CED+Features embeddings
                     import librosa
 
@@ -289,9 +304,11 @@ def validate_with_evaluate(
                         0
                     )  # Add batch dimension
 
-                # Project through trained MLP
+                # Project through trained MLP (skip for ced_finetune as it's already projected)
                 feature = feature.to(device)
-                if use_dual_projection:
+                if encoder_type == "ced_finetune":
+                    embedding = feature  # Already projected
+                elif use_dual_projection:
                     embedding = projection_mlp.forward_query(feature)
                 else:
                     embedding = projection_mlp(feature)
@@ -476,6 +493,18 @@ def main(args):
         # Calculate combined feature dimension
         feature_dim = feature_dim + 50 * 3
         sample_rate = 16000
+    elif args.encoder_type == "ced_finetune":
+        print("Initializing CED fine-tuning feature extractor...")
+        feature_extractor = CedFineTuneFeatureExtractor(
+            model_name=args.ced_model_name,
+            device=device,
+            projection_dim=args.projection_output_dim,
+        )
+
+        # For fine-tuning, we don't need a separate MLP since the model has a projection head
+        feature_dim = args.projection_output_dim
+        sample_rate = 16000
+
     elif args.encoder_type == "passt":
         print("Initializing PaSST feature extractor...")
         feature_extractor = PaSSTFeatureExtractor(
@@ -491,6 +520,7 @@ def main(args):
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
+    # Create dataset and dataloader
     train_dataset = VimSketch(
         root_dir=args.data_dir,
         sample_rate=sample_rate,
@@ -509,8 +539,14 @@ def main(args):
         pin_memory=True if device.type == "cuda" else False,
     )
 
-    print("Creating Projection MLP model...")
-    if args.use_dual_projection:
+    print("Creating model...")
+    if args.encoder_type == "ced_finetune":
+        # For CED fine-tuning, we don't need a separate projection MLP
+        # The model itself outputs the projected features
+        model = None  # We'll use the feature_extractor.model directly
+        model_params = list(feature_extractor.model.parameters())
+        print("Using CED model with integrated projection head")
+    elif args.use_dual_projection:
         print("Using dual projection MLPs for query and reference branches")
         model = DualProjectionMLP(
             input_dim=feature_dim,
@@ -518,6 +554,7 @@ def main(args):
             output_dim=args.projection_output_dim,
             dropout_rate=args.dropout_rate,
         ).to(device)
+        model_params = list(model.parameters())
     else:
         print("Using single projection MLP for both branches")
         model = ProjectionMLP(
@@ -526,9 +563,9 @@ def main(args):
             output_dim=args.projection_output_dim,
             dropout_rate=args.dropout_rate,
         ).to(device)
+        model_params = list(model.parameters())
 
-    criterion = ContrastiveLoss(temperature=args.temperature)
-    model_params = list(model.parameters())
+    # Add LoRA parameters for PaSST if needed
     if args.encoder_type == "passt" and args.passt_use_lora:
         model_params.extend(
             [p for p in feature_extractor.model.parameters() if p.requires_grad]
@@ -536,6 +573,23 @@ def main(args):
         print(
             f"Including {sum(p.numel() for p in feature_extractor.model.parameters() if p.requires_grad):,} LoRA parameters in optimizer"
         )
+
+    criterion = ContrastiveLoss(temperature=args.temperature)
+
+    # Fix the model_params initialization for ced_finetune case
+    if args.encoder_type == "ced_finetune":
+        model_params = list(feature_extractor.model.parameters())
+    else:
+        model_params = list(model.parameters())
+
+    if args.encoder_type == "passt" and args.passt_use_lora:
+        model_params.extend(
+            [p for p in feature_extractor.model.parameters() if p.requires_grad]
+        )
+        print(
+            f"Including {sum(p.numel() for p in feature_extractor.model.parameters() if p.requires_grad):,} LoRA parameters in optimizer"
+        )
+
     optimizer = optim.AdamW(
         model_params,
         lr=args.learning_rate,
@@ -638,19 +692,35 @@ def main(args):
                     f"New best {args.tracking_metric}: {best_val_metric:.4f}. Saving model to {save_path}"
                 )
 
-                # Save model checkpoint (matching classification format)
-                torch.save(
-                    {
-                        "epoch": epoch + 1,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "metrics": val_metrics,
-                        "encoder_type": args.encoder_type,
-                        "feature_dim": feature_dim,
-                        "use_dual_projection": args.use_dual_projection,
-                    },
-                    save_path,
-                )
+                # Save model checkpoint
+                if args.encoder_type == "ced_finetune":
+                    torch.save(
+                        {
+                            "epoch": epoch + 1,
+                            "model_state_dict": feature_extractor.model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "metrics": val_metrics,
+                            "encoder_type": args.encoder_type,
+                            "feature_dim": feature_dim,
+                            "use_dual_projection": args.use_dual_projection,
+                            "ced_model_name": args.ced_model_name,
+                            "projection_dim": args.projection_output_dim,
+                        },
+                        save_path,
+                    )
+                else:
+                    torch.save(
+                        {
+                            "epoch": epoch + 1,
+                            "model_state_dict": model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "metrics": val_metrics,
+                            "encoder_type": args.encoder_type,
+                            "feature_dim": feature_dim,
+                            "use_dual_projection": args.use_dual_projection,
+                        },
+                        save_path,
+                    )
                 print(f"Model saved to {save_path}")
 
                 # Log best model to wandb as a proper artifact (matching classification)
@@ -717,7 +787,7 @@ if __name__ == "__main__":
         "--encoder_type",
         type=str,
         default="clap",
-        choices=["clap", "openl3", "ced", "ced_plus", "passt"],
+        choices=["clap", "openl3", "ced", "ced_plus", "ced_finetune", "passt"],
         help="Type of audio encoder to use",
     )
     parser.add_argument(

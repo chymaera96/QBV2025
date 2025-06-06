@@ -57,7 +57,6 @@ class QVIMPretrainModule(pl.LightningModule):
         paths = np.array([hash(p) for i, p in enumerate(batch['filename'])])
         I = torch.tensor(paths[None, :] == paths[:, None])
 
-
         loss = - C_text[torch.where(I)].mean()
 
         self.log('train/loss', loss, )
@@ -66,11 +65,24 @@ class QVIMPretrainModule(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(
+        optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config.max_lr,
             weight_decay=self.config.weight_decay
         )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=self.config.n_epochs,
+            eta_min=self.config.min_lr
+        )
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'interval': 'epoch',
+                'frequency': 1
+            }
+        }
 
 
 def train(config):
@@ -80,7 +92,6 @@ def train(config):
         sample_rate=config.sample_rate,
         duration=config.duration,
     )
-
 
     train_dl = DataLoader(
         dataset=contrastive_dataset,
@@ -131,6 +142,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_epochs', type=int, default=100)
     parser.add_argument('--weight_decay', type=float, default=0.0)
     parser.add_argument('--max_lr', type=float, default=0.0003)
+    parser.add_argument('--min_lr', type=float, default=5.0e-6)
     parser.add_argument('--initial_tau', type=float, default=0.07)
     parser.add_argument('--tau_trainable', action='store_true')
     parser.add_argument('--precision', type=str, default="bf16-mixed")

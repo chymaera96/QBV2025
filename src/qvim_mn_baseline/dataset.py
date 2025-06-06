@@ -220,7 +220,7 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
 
         self.augment = Augment(sample_rate=sample_rate, max_transforms=3)
 
-        self.audio_dir = os.path.join(dataset_dir, 'audio')
+        self.audio_dir = dataset_dir
         self.file_list = [f for f in os.listdir(self.audio_dir) if f.endswith('.wav') or f.endswith('.flac')]
         self.cached_files = {}
 

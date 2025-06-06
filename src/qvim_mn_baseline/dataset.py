@@ -260,8 +260,8 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
         ref_2 = self.augment(copy.deepcopy(waveform))
         
         return {
-            'reference_1': self.pad_or_truncate__(ref_1, self.sample_rate),
-            'reference_2': self.pad_or_truncate__(ref_2, self.sample_rate),
+            'reference_1': self.__pad_or_truncate__(ref_1, self.sample_rate),
+            'reference_2': self.__pad_or_truncate__(ref_2, self.sample_rate),
             'filename': filename
         }
 

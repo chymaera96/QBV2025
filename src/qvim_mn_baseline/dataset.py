@@ -19,8 +19,8 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.sample_rate = sample_rate
         self.duration = duration
 
-        self.augment_ref = Augment(sample_rate=sample_rate, max_transforms=4)
-        self.augment_imit = Augment(sample_rate=sample_rate, max_transforms=4)
+        self.augment_ref = Augment(sample_rate=sample_rate, max_transforms=3)
+        self.augment_imit = Augment(sample_rate=sample_rate, max_transforms=3)
 
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),

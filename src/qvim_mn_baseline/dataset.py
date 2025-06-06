@@ -246,11 +246,14 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
         if len(audio) < fixed_length:
             array = np.zeros(fixed_length, dtype="float32")
             array[:len(audio)] = audio
-        else:
+        if len(audio) >= fixed_length:
             array = audio[:fixed_length]
 
-        # return torch.from_numpy(array).float()
-        return array
+        if isinstance(array, np.ndarray):
+            return torch.from_numpy(array).float()
+        elif isinstance(array, torch.Tensor):
+            return array.float() 
+        # return torch.tensor(array, d
 
     def __getitem__(self, index):
         filename = self.file_list[index]

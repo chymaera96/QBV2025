@@ -61,15 +61,13 @@ class QVIMModule(pl.LightningModule):
         return self.forward_imitation(queries), self.forward_reference(items)
 
     def forward_imitation(self, imitations):
-        with torch.no_grad():
-            imitations = self.mel(imitations).unsqueeze(1)
+        imitations = self.mel(imitations).unsqueeze(1)
         y_imitation = self.imitation_encoder(imitations)[1]
         y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
         return y_imitation
 
     def forward_reference(self, items):
-        with torch.no_grad():
-            items = self.mel(items).unsqueeze(1)
+        items = self.mel(items).unsqueeze(1)
         y_reference = self.reference_encoder(items)[1]
         y_reference = torch.nn.functional.normalize(y_reference, dim=1)
         return y_reference
@@ -98,7 +96,9 @@ class QVIMModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
 
-        y_imitation, y_reference = self.forward(batch['imitation'], batch['reference'])
+        with torch.no_grad():
+            y_imitation = self.forward_imitation(batch['imitation'])
+            y_reference = self.forward_reference(batch['reference'])
 
         C = torch.matmul(y_imitation, y_reference.T)
         C = C / torch.abs(self.tau)

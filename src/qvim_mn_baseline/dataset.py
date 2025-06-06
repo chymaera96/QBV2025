@@ -249,7 +249,8 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
         else:
             array = audio[:fixed_length]
 
-        return torch.from_numpy(array).float()
+        # return torch.from_numpy(array).float()
+        return array
 
     def __getitem__(self, index):
         filename = self.file_list[index]

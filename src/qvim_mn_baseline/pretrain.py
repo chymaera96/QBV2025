@@ -8,12 +8,10 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 
-from qvim_mn_baseline.dataset import VimSketchDataset
-from qvim_mn_baseline.download import download_vimsketch_dataset
+from qvim_mn_baseline.dataset import CLRPretrainingDataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
 from qvim_mn_baseline.mn.model import get_model as get_mobilenet
 from qvim_mn_baseline.utils import NAME_TO_WIDTH
-from hc_baseline.modules.augmentations import Augment
 
 
 class QVIMPretrainModule(pl.LightningModule):
@@ -56,7 +54,7 @@ class QVIMPretrainModule(pl.LightningModule):
 
         C_text = torch.log_softmax(C, dim=1)
 
-        paths = np.array([hash(p) for i, p in enumerate(batch['imitation_filename'])])
+        paths = np.array([hash(p) for i, p in enumerate(batch['filename'])])
         I = torch.tensor(paths[None, :] == paths[:, None])
 
 
@@ -75,33 +73,14 @@ class QVIMPretrainModule(pl.LightningModule):
         )
 
 
-class ContrastivePretrainDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, augment_fn):
-        self.dataset = dataset
-        self.augment = augment_fn
-
-    def __getitem__(self, idx):
-        sample = self.dataset[idx]
-        ref = sample['reference']
-        return {
-            'reference_1': self.augment(ref.clone()),
-            'reference_2': self.augment(ref.clone()),
-        }
-
-    def __len__(self):
-        return len(self.dataset)
-
-
 def train(config):
-    download_vimsketch_dataset(config.dataset_path)
 
-    raw_dataset = VimSketchDataset(
-        os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
+    contrastive_dataset = CLRPretrainingDataset(
+        dataset_dir=config.dataset_path,
         sample_rate=config.sample_rate,
-        duration=config.duration
+        duration=config.duration,
     )
 
-    contrastive_dataset = ContrastivePretrainDataset(raw_dataset, augment_fn=Augment(sample_rate=config.sample_rate))
 
     train_dl = DataLoader(
         dataset=contrastive_dataset,
@@ -145,7 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_path', type=str, default='data')
 
     # Architecture
-    parser.add_argument('--pretrained_name', type=str, default="mn10_as")
+    parser.add_argument('--pretrained_name', type=str, default=None)
 
     # Training
     parser.add_argument('--batch_size', type=int, default=16)

@@ -210,6 +210,63 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.all_pairs)
+    
+
+class CLRPretrainingDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_dir, sample_rate=32000, duration=10.0):
+        self.dataset_dir = dataset_dir
+        self.sample_rate = sample_rate
+        self.duration = duration
+
+        self.augment = Augment(sample_rate=sample_rate, max_transforms=3)
+
+        self.audio_dir = os.path.join(dataset_dir, 'audio')
+        self.file_list = [f for f in os.listdir(self.audio_dir) if f.endswith('.wav') or f.endswith('.flac')]
+        self.cached_files = {}
+
+    def load_audio(self, path, sr=None):
+        if sr is None:
+            sr = self.sample_rate
+        if path not in self.cached_files:
+            audio, sr = librosa.load(
+                path,
+                sr=sr,
+                mono=True,
+                duration=self.duration
+            )
+            self.cached_files[path] = audio
+        # return self.__pad_or_truncate__(self.cached_files[path], sr=sr)
+        return self.cached_files[path]
+
+    def __pad_or_truncate__(self, audio, sr=None):
+        if sr is None:
+            sr = self.sample_rate
+        fixed_length = int(sr * self.duration)
+        if len(audio) < fixed_length:
+            array = np.zeros(fixed_length, dtype="float32")
+            array[:len(audio)] = audio
+        else:
+            array = audio[:fixed_length]
+
+        return torch.from_numpy(array).float()
+
+    def __getitem__(self, index):
+        filename = self.file_list[index]
+        filepath = os.path.join(self.dataset_dir, 'audio', filename)
+
+        waveform = self.load_audio(filepath)
+        ref_1 = self.augment(waveform)
+        ref_2 = self.augment(waveform.clone())
+        
+        return {
+            'reference_1': self.pad_or_truncate__(ref_1, self.sample_rate),
+            'reference_2': self.pad_or_truncate__(ref_2, self.sample_rate),
+            'filename': filename
+        }
+
+    def __len__(self):
+        return len(self.file_list)
+
 
 
 # if __name__ == "__main__":

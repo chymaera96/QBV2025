@@ -53,15 +53,22 @@ class QVIMModule(pl.LightningModule):
             print(f"Loading pretrained encoder from {config.pretrained_ckpt_path}")
             try:
                 ckpt = torch.load(config.pretrained_ckpt_path, map_location='cpu')
-            except Exception as e:
-                print(print("cwd =", os.getcwd()))
-            state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+                state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
 
-            encoder.load_state_dict({
-                k.replace('encoder.', ''): v
-                for k, v in state_dict.items()
-                if k.startswith('encoder.')
-            }, strict=False)
+                # Strict loading to ensure all keys match
+                encoder.load_state_dict({
+                    k.replace('encoder.', ''): v
+                    for k, v in state_dict.items()
+                    if k.startswith('encoder.')
+                }, strict=True)
+
+                print("Pretrained weights loaded successfully.")
+            except Exception as e:
+                print(f"Error loading checkpoint: {e}")
+                print(f"Current working directory: {os.getcwd()}")
+                raise RuntimeError("Failed to load pretrained weights. Exiting.")
+        else:
+            raise ValueError("Pretrained checkpoint path not provided. Exiting.")
 
         self.imitation_encoder = encoder
         self.reference_encoder = deepcopy(encoder)

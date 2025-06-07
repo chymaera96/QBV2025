@@ -46,7 +46,7 @@ class QVIMModule(pl.LightningModule):
 
         encoder = get_mobilenet(
             width_mult=NAME_TO_WIDTH(config.pretrained_name),
-            pretrained_name=config.pretrained_name
+            pretrained_name=None
         )
 
         if config.pretrained_ckpt_path:

@@ -43,6 +43,13 @@ except ImportError as e:
         return {"mrr": 0.0, "class_wise_mrr": 0.0, "ndcg": 0.0}
 
 
+def unwrap_model(model):
+    if hasattr(model, "module"):
+        return model.module
+    else:
+        return model
+
+
 def maintain_ckpts(args, startidx, all_idx_len):
     for i in reversed(range(startidx, all_idx_len)):
         if os.path.exists(os.path.join(args.checkpoint_path, f"epoch_top_{i}.pt")):
@@ -285,9 +292,6 @@ def main():
     else:
         args.tensorboard_path = ""
         args.checkpoint_path = ""
-
-    if args.copy_codebase:
-        copy_codebase(args)
 
     assert args.precision in ["amp", "fp16", "fp32"]
     if args.precision == "fp16":
@@ -594,38 +598,40 @@ def main():
                 continue
 
             if is_master(args):
-            if (
-                (completed_epoch == args.epochs)
-                or (args.save_frequency > 0 and (completed_epoch % args.save_frequency) == 0)
-                or (
-                    args.save_most_recent
-                    and (completed_epoch % args.zeroshot_frequency) == 0
-                )
-            ):
-                save_path = os.path.join(
-                    args.checkpoint_path, f"epoch_{completed_epoch}.pt"
-                )
+                if (
+                    (completed_epoch == args.epochs)
+                    or (
+                        args.save_frequency > 0
+                        and (completed_epoch % args.save_frequency) == 0
+                    )
+                    or (
+                        args.save_most_recent
+                        and (completed_epoch % args.zeroshot_frequency) == 0
+                    )
+                ):
                     save_path = os.path.join(
                         args.checkpoint_path, f"epoch_{completed_epoch}.pt"
                     )
-                    save_checkpoint(
-                        {
-                            "epoch": completed_epoch,
-                            "name": args.name,
-                            "state_dict": model.state_dict(),
-                            "optimizer": optimizer.state_dict(),
-                        },
-                        save_path,
-                    )
+                    # Replace save_checkpoint with torch.save
+                    checkpoint_dict = {
+                        "epoch": completed_epoch,
+                        "name": args.name,
+                        "state_dict": model.state_dict(),
+                    }
 
-                    # Log checkpoint save to wandb
-                    if args.wandb:
-                        wandb.log(
-                            {
-                                "checkpoint/epoch": completed_epoch,
-                                "checkpoint/saved": True,
-                            }
-                        )
+                    # Handle optimizer state dict for both single and split optimizers
+                    if isinstance(optimizer, dict):
+                        for k, v in optimizer.items():
+                            checkpoint_dict[f"{k}_optimizer"] = v.state_dict()
+                    else:
+                        checkpoint_dict["optimizer"] = optimizer.state_dict()
+
+                    # Add scaler if using AMP
+                    if scaler is not None:
+                        checkpoint_dict["scaler"] = scaler.state_dict()
+
+                    torch.save(checkpoint_dict, save_path)
+                    logging.info(f"Saved checkpoint to {save_path}")
 
             # resetting the scale for the clap loss, as we have two loss in CLAP model
             if args.clap_mlploss:

@@ -5,21 +5,21 @@ from pathlib import Path
 
 # Update these paths according to your setup
 PATHS = {
-    "vim_dataset": "/home/chris/dev/QBV2025/data/Vim_Sketch",
-    "webdataset_output": "/home/chris/dev/QBV2025/data/vim_webdataset",
-    "clap_checkpoint": "/home/chris/dev/QBV2025/models/630k-audioset-fusion-best.pt",
-    "logs": "/home/chris/dev/QBV2025/logs/vim_clap_finetune",
+    "vim_dataset": "/homes/cp584/QBV2025/data/Vim_Sketch",
+    "webdataset_output": "/homes/cp584/QBV2025/data/vim_webdataset",
+    "clap_checkpoint": "/homes/cp584/QBV2025/models/630k-audioset-best.pt",
+    "logs": "/homes/cp584/QBV2025/logs/vim_clap_finetune",
     "experiment_name": "vim_sketch_finetune_v2",
 }
 
 # Training configuration
 TRAINING_CONFIG = {
-    "epochs": 20,
-    "batch_size": 2,
+    "epochs": 25,
+    "batch_size": 128,
     "learning_rate": 1e-5,
     "weight_decay": 0.1,
     "warmup_steps": 1000,
-    "save_frequency": 5,
+    "save_frequency": 1,
 }
 
 # Model configuration

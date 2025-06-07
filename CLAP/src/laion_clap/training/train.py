@@ -77,7 +77,22 @@ def train_one_epoch(
     data_time_m = AverageMeter()
     end = time.time()
 
-    for i, batch in enumerate(dataloader):
+    # Add tqdm progress bar - only on master process to avoid duplicates
+    if is_master(args):
+        from tqdm import tqdm
+
+        progress_bar = tqdm(
+            enumerate(dataloader),
+            total=num_batches_per_epoch,
+            desc=f"Epoch {epoch}",
+            ncols=100,
+            disable=False,
+        )
+        dataloader_iter = progress_bar
+    else:
+        dataloader_iter = enumerate(dataloader)
+
+    for i, batch in dataloader_iter:
         step = num_batches_per_epoch * epoch + i
         if isinstance(scheduler, dict):
             for s in scheduler.values():
@@ -228,6 +243,22 @@ def train_one_epoch(
 
         loss_m.update(total_loss.item(), batch_size)
 
+        # Update tqdm progress bar with current loss - only on master process
+        if is_master(args):
+            # Get current learning rate for display
+            if isinstance(optimizer, dict):
+                lr_display = f"LR: {optimizer['pretrained'].param_groups[0]['lr']:.2e}"
+            else:
+                lr_display = f"LR: {optimizer.param_groups[0]['lr']:.2e}"
+
+            progress_bar.set_postfix(
+                {
+                    "Loss": f"{total_loss.item():.4f}",
+                    "AvgLoss": f"{loss_m.avg:.4f}",
+                    "LR": lr_display.split(": ")[1],
+                }
+            )
+
         # LOG EVERY BATCH TO WANDB - This should happen every iteration
         if is_master(args) and args.wandb and wandb is not None:
             # Get current learning rate
@@ -283,8 +314,8 @@ def train_one_epoch(
             try:
                 wandb.log(wandb_log, step=step)
 
-                # Also log a simple progress message every 10 batches
-                if i % 10 == 0:
+                # Reduce frequent logging to every 50 batches instead of 10
+                if i % 50 == 0:
                     logging.info(
                         f"Batch {i}/{num_batches_per_epoch}, Loss: {total_loss.item():.4f}, LR: {current_lr}"
                     )
@@ -292,8 +323,8 @@ def train_one_epoch(
             except Exception as e:
                 logging.warning(f"Failed to log to wandb: {e}")
 
-        # Console logging every 100 batches (keep existing behavior)
-        if is_master(args) and (i % 100 == 0 or batch_count == num_batches_per_epoch):
+        # Reduce console logging frequency to every 200 batches instead of 100
+        if is_master(args) and (i % 200 == 0 or batch_count == num_batches_per_epoch):
             num_samples = batch_count * batch_size
             samples_per_second = (
                 num_samples / batch_time_m.sum if batch_time_m.sum > 0 else 0
@@ -325,6 +356,10 @@ def train_one_epoch(
                 name = "train/" + name
                 if tb_writer is not None:
                     tb_writer.add_scalar(name, val, step)
+
+    # Close progress bar at the end of epoch
+    if is_master(args):
+        progress_bar.close()
 
     # Log epoch-level metrics to wandb
     if is_master(args) and args.wandb and wandb is not None:

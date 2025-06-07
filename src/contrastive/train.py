@@ -15,7 +15,7 @@ import wandb
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
 
-from .dataset import VimSketch
+from .dataset import VimSketch, get_cross_validation_datasets, get_evaluation_data_path
 from .evaluate import evaluate_qvim_system
 from .features import (
     CedFeatureExtractor,
@@ -206,6 +206,9 @@ def validate_with_evaluate(
     device,
     encoder_type="clap",
     use_dual_projection=False,
+    fold=0,  # Add fold parameter
+    vim_sketch_dir=None,  # Add vim_sketch_dir parameter for fold 2
+    seed=42,  # Add seed parameter for consistent splits
 ):
     # Handle the case where projection_mlp is None (for ced_finetune)
     if projection_mlp is not None:
@@ -215,6 +218,7 @@ def validate_with_evaluate(
         feature_extractor.model.eval()
 
     def compute_similarities(items, queries):
+        # ... existing similarity computation code remains the same ...
         results = {}
 
         # Extract features for all items
@@ -348,19 +352,192 @@ def validate_with_evaluate(
 
         return results
 
-    # Call the evaluation function with our similarity function
-    metrics = evaluate_qvim_system(compute_similarities, data_path=data_path)
+    # For fold-specific evaluation, we need to create the appropriate validation set
+    if fold == 1:
+        # For fold 1, we need to evaluate on the held-out half of AIMLA dev
+        # This requires recreating the same split used in training
+        import random
 
-    return metrics
+        import pandas as pd
+
+        random.seed(seed)
+
+        # Load AIMLA data and split it the same way as in training
+        pairs = pd.read_csv(os.path.join(data_path, "DEV Dataset.csv"), skiprows=1)[
+            ["Label", "Class", "Items", "Query 1", "Query 2", "Query 3"]
+        ]
+
+        pairs = pairs.melt(
+            id_vars=[col for col in pairs.columns if "Query" not in col],
+            value_vars=["Query 1", "Query 2", "Query 3"],
+            var_name="Query Type",
+            value_name="Query",
+        ).dropna()
+
+        # Split AIMLA data in half, stratified by class (same as in dataset.py)
+        val_pairs = []
+        for class_name in pairs["Class"].unique():
+            class_pairs = pairs[pairs["Class"] == class_name].to_dict("records")
+            random.shuffle(class_pairs)
+            split_idx = len(class_pairs) // 2
+            val_pairs.extend(class_pairs[split_idx:])  # Second half for validation
+
+        # Create items and queries dictionaries for validation set only
+        val_df = pd.DataFrame(val_pairs)
+
+        items = {}
+        queries = {}
+
+        for _, row in val_df.iterrows():
+            item_path = os.path.join(data_path, "Items", row["Class"], row["Items"])
+            query_path = os.path.join(data_path, "Queries", row["Class"], row["Query"])
+
+            if os.path.exists(item_path) and os.path.exists(query_path):
+                items[row["Items"]] = item_path
+                queries[row["Query"]] = query_path
+
+        # Compute similarities only on validation set
+        scores = compute_similarities(items, queries)
+
+        # Create custom evaluation for this subset
+        return evaluate_fold_specific(scores, val_df, data_path)
+
+    elif fold == 2:
+        # For fold 2, we should ideally evaluate on the held-out 10% of VimSketch
+        # But since we don't have ground truth for VimSketch, we'll use full AIMLA dev
+        # This is a limitation of our setup
+        print(
+            "Note: Fold 2 uses full AIMLA dev for evaluation (VimSketch ground truth not available)"
+        )
+        return evaluate_qvim_system(compute_similarities, data_path=data_path)
+    elif fold == 3:
+        # For fold 3, evaluate on full AIMLA dev (same as fold 0)
+        # This tests how well the model generalizes when trained on both datasets
+        print("Fold 3: Evaluating on full AIMLA dev (trained on VimSketch + AIMLA)")
+        return evaluate_qvim_system(compute_similarities, data_path=data_path)
+    else:
+        # Fold 0 and -1: use full AIMLA dev dataset
+        return evaluate_qvim_system(compute_similarities, data_path=data_path)
+
+
+def evaluate_fold_specific(scores, val_df, data_path):
+    """Custom evaluation function for fold-specific validation sets"""
+    import numpy as np
+    import pandas as pd
+
+    # Create rankings DataFrame
+    rankings = pd.DataFrame(
+        dict(
+            **{"id": [i for i in list(scores.keys())]},
+            **{
+                k: [v[k] for v in scores.values()]
+                for k in scores[list(scores.keys())[0]].keys()
+            },
+        )
+    ).set_index("id")
+
+    # Remove missing files
+    available_queries = set(rankings.index)
+    available_items = set(rankings.columns)
+
+    val_df = val_df[
+        val_df["Query"].isin(available_queries) & val_df["Items"].isin(available_items)
+    ]
+
+    rankings = rankings.loc[
+        rankings.index.intersection(val_df["Query"].unique()),
+        rankings.columns.intersection(val_df["Items"].unique()),
+    ]
+
+    # Individual item evaluation
+    ground_truth = {row["Query"]: [row["Items"]] for _, row in val_df.iterrows()}
+
+    position_of_correct = {}
+    for query, correct_item_list in ground_truth.items():
+        if query not in rankings.index:
+            continue
+        sorted_items = rankings.loc[query].sort_values(ascending=False)
+        position_of_correct[query] = {
+            item: sorted_items.index.get_loc(item)
+            for item in correct_item_list
+            if item in sorted_items.index
+        }
+
+    # Compute MRR
+    normalized_rrs = []
+    for query, items_ranks in position_of_correct.items():
+        rr, irr = [], []
+        for i, (item, rank) in enumerate(items_ranks.items()):
+            rr.append(1 / (rank + 1))
+            irr.append(1 / (i + 1))
+        if irr:  # Avoid division by zero
+            normalized_rrs.append(sum(rr) / sum(irr))
+
+    mrr = np.mean(normalized_rrs) if normalized_rrs else 0.0
+
+    # Class-wise evaluation
+    ground_truth_class = {
+        row["Query"]: [
+            row_["Items"]
+            for _, row_ in val_df.drop_duplicates("Items").iterrows()
+            if row_["Class"] == row["Class"]
+        ]
+        for _, row in val_df.drop_duplicates("Query").iterrows()
+    }
+
+    position_of_correct_class = {}
+    for query, correct_item_list in ground_truth_class.items():
+        if query not in rankings.index:
+            continue
+        sorted_items = rankings.loc[query].sort_values(ascending=False)
+        position_of_correct_class[query] = {
+            item: sorted_items.index.get_loc(item)
+            for item in correct_item_list
+            if item in sorted_items.index
+        }
+
+    # Compute class-wise MRR and NDCG
+    normalized_rrs_class = []
+    normalized_dcg = []
+
+    for query, items_ranks in position_of_correct_class.items():
+        if not items_ranks:
+            continue
+
+        rr, irr, dcg, idcg = [], [], [], []
+        for i, (item, rank) in enumerate(items_ranks.items()):
+            rr.append(1 / (rank + 1))
+            irr.append(1 / (i + 1))
+            dcg.append(1 / np.log2(rank + 2))
+            idcg.append(1 / np.log2(i + 2))
+
+        if irr:
+            normalized_rrs_class.append(sum(rr) / sum(irr))
+        if idcg:
+            normalized_dcg.append(sum(dcg) / sum(idcg))
+
+    class_wise_mrr = np.mean(normalized_rrs_class) if normalized_rrs_class else 0.0
+    ndcg = np.mean(normalized_dcg) if normalized_dcg else 0.0
+
+    print(
+        f"Fold-specific validation - MRR: {mrr:.4f}, Class-wise MRR: {class_wise_mrr:.4f}, NDCG: {ndcg:.4f}"
+    )
+
+    return {
+        "mrr": float(mrr),
+        "class_wise_mrr": float(class_wise_mrr),
+        "ndcg": float(ndcg),
+    }
 
 
 def main(args):
     wandb_entity = os.environ.get("WANDB_ENTITY", None)
     wandb_project = os.environ.get("WANDB_PROJECT", "qvim_contrastive")
 
-    # Update the model name generation to include dual projection flag
+    # Update the model name generation to include fold information
     model_name_parts = [
         "SC",
+        f"fold-{args.fold}",
     ]
 
     if args.encoder_type == "clap":
@@ -531,16 +708,46 @@ def main(args):
     else:
         raise ValueError(f"Unsupported encoder type: {args.encoder_type}")
 
-    # Create dataset and dataloader
-    train_dataset = VimSketch(
-        root_dir=args.data_dir,
-        sample_rate=sample_rate,
-        feature_extractor=feature_extractor,
-        seed=args.seed,
-        augment=args.augment,
-        max_transforms=args.max_transforms,
-        augmentations=args.augmentations,
-    )
+    # Create dataset and dataloader using cross-validation setup
+    print(f"Setting up cross-validation fold {args.fold}")
+
+    if args.fold == -1:
+        # Use original VimSketch dataset (for backward compatibility)
+        print("Using original VimSketch dataset")
+        train_dataset = VimSketch(
+            root_dir=args.data_dir,
+            sample_rate=sample_rate,
+            feature_extractor=feature_extractor,
+            seed=args.seed,
+            augment=args.augment,
+            max_transforms=args.max_transforms,
+            augmentations=args.augmentations,
+        )
+
+        # For validation, we'll still use the evaluation function with AIMLA dev
+        eval_data_path = args.eval_data_dir
+    else:
+        # Use cross-validation datasets
+        train_dataset, val_dataset = get_cross_validation_datasets(
+            vim_sketch_dir=args.data_dir,
+            aimla_dev_dir=args.eval_data_dir,
+            sample_rate=sample_rate,
+            feature_extractor=feature_extractor,
+            fold=args.fold,
+            seed=args.seed,
+            augment=args.augment,
+            max_transforms=args.max_transforms,
+            augmentations=args.augmentations,
+        )
+
+        # Get appropriate evaluation data path for this fold
+        eval_data_path = get_evaluation_data_path(
+            fold=args.fold, aimla_dev_dir=args.eval_data_dir
+        )
+
+        print(
+            f"Fold {args.fold} - Train size: {len(train_dataset)}, Val size: {len(val_dataset)}"
+        )
 
     train_loader = DataLoader(
         train_dataset,
@@ -676,10 +883,13 @@ def main(args):
             val_metrics = validate_with_evaluate(
                 model,
                 feature_extractor,
-                args.eval_data_dir,
+                eval_data_path,  # Use the fold-appropriate evaluation path
                 device,
                 args.encoder_type,
                 args.use_dual_projection,
+                fold=args.fold,  # Pass fold information
+                vim_sketch_dir=args.data_dir,  # Pass vim_sketch_dir for fold 2
+                seed=args.seed,  # Pass seed for consistent splits
             )
             print(f"MRR: {val_metrics['mrr']:.4f}")
             print(f"Class-wise MRR: {val_metrics['class_wise_mrr']:.4f}")
@@ -716,6 +926,7 @@ def main(args):
                             "use_dual_projection": args.use_dual_projection,
                             "ced_model_name": args.ced_model_name,
                             "projection_dim": args.projection_output_dim,
+                            "fold": args.fold,  # Save fold information
                         },
                         save_path,
                     )
@@ -729,6 +940,7 @@ def main(args):
                             "encoder_type": args.encoder_type,
                             "feature_dim": feature_dim,
                             "use_dual_projection": args.use_dual_projection,
+                            "fold": args.fold,  # Save fold information
                         },
                         save_path,
                     )
@@ -791,6 +1003,16 @@ if __name__ == "__main__":
         type=str,
         default="./data/DEV",
         help="Path to the evaluation dataset (AIMLA DEV)",
+    )
+    parser.add_argument(
+        "--fold",
+        type=int,
+        default=-1,
+        choices=[-1, 0, 1, 2, 3],
+        help="Cross-validation fold: -1 (original), 0 (vim_train + aimla_dev_val), "
+        "1 (vim_train + aimla_dev_half_train + aimla_dev_half_val), "
+        "2 (vim_90%_train + aimla_dev_train + vim_10%_val), "
+        "3 (vim_train + aimla_dev_train + aimla_dev_val)",
     )
 
     # Encoder parameters

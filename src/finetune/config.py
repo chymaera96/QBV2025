@@ -15,11 +15,11 @@ PATHS = {
 # Training configuration
 TRAINING_CONFIG = {
     "epochs": 25,
-    "batch_size": 128,
+    "batch_size": 64,
     "learning_rate": 1e-5,
     "weight_decay": 0.1,
     "warmup_steps": 1000,
-    "save_frequency": 1,
+    "save_frequency": 5,
 }
 
 # Model configuration

@@ -593,7 +593,11 @@ def main():
             )
             completed_epoch = epoch + 1
 
-            if any(v is None for v in [data, model, optimizer, scaler, scheduler]):
+            # Modified condition - don't skip if we're using vim dataset
+            if (
+                any(v is None for v in [data, model, optimizer])
+                and args.dataset_type != "vim"
+            ):
                 # a warmup stage
                 continue
 

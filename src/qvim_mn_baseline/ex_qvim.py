@@ -308,6 +308,8 @@ if __name__ == '__main__':
     # Encoder architecture
     parser.add_argument('--pretrained_name', type=str, default="mn10_as",
                         help="Pretrained model name for transfer learning.")
+    parser.add_argument('--pretrained_ckpt_path', type=str, default=None,
+                    help="Path to a pretraining checkpoint to initialize the encoder weights.")
 
     # Training
     parser.add_argument('--random_seed', type=int, default=None,

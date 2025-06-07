@@ -51,7 +51,10 @@ class QVIMModule(pl.LightningModule):
 
         if config.pretrained_ckpt_path:
             print(f"Loading pretrained encoder from {config.pretrained_ckpt_path}")
-            ckpt = torch.load(config.pretrained_ckpt_path, map_location='cpu')
+            try:
+                ckpt = torch.load(config.pretrained_ckpt_path, map_location='cpu')
+            except Exception as e:
+                print(print("cwd =", os.getcwd()))
             state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
 
             encoder.load_state_dict({

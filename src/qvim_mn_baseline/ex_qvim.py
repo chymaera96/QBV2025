@@ -340,7 +340,7 @@ if __name__ == '__main__':
                         help="Final learning rate at the end of training.")
     parser.add_argument('--warmup_epochs', type=int, default=1,
                         help="Number of warm-up epochs where learning rate increases gradually.")
-    parser.add_argument('--rampdown_epochs', type=int, default=7,
+    parser.add_argument('--rampdown_epochs', type=int, default=15,
                         help="Duration (in epochs) for learning rate ramp-down.")
     parser.add_argument('--initial_tau', type=float, default=0.07,
                         help="Temperature parameter for the loss function.")

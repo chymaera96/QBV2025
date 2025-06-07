@@ -596,10 +596,7 @@ def main():
             if is_master(args):
                 if (
                     (completed_epoch == args.epochs)
-                    or (
-                        args.save_frequency > 0
-                        and (completed_epoch % args.save_frequency) == 0
-                    )
+                    or (args.save_frequency > 0 and completed_epoch)
                     or (
                         args.save_most_recent
                         and (completed_epoch % args.zeroshot_frequency) == 0

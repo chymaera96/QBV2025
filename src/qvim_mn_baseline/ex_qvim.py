@@ -44,13 +44,24 @@ class QVIMModule(pl.LightningModule):
             fmax_aug_range=config.fmax_aug_range
         )
 
-        # get the to be specified mobilenetV3 as encoder
-        self.imitation_encoder = get_mobilenet(
+        encoder = get_mobilenet(
             width_mult=NAME_TO_WIDTH(config.pretrained_name),
             pretrained_name=config.pretrained_name
         )
 
-        self.reference_encoder = deepcopy(self.imitation_encoder)
+        if config.pretrained_ckpt_path:
+            print(f"Loading pretrained encoder from {config.pretrained_ckpt_path}")
+            ckpt = torch.load(config.pretrained_ckpt_path, map_location='cpu')
+            state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+
+            encoder.load_state_dict({
+                k.replace('encoder.', ''): v
+                for k, v in state_dict.items()
+                if k.startswith('encoder.')
+            }, strict=False)
+
+        self.imitation_encoder = encoder
+        self.reference_encoder = deepcopy(encoder)
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)

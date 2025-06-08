@@ -41,10 +41,21 @@ class CLAP(nn.Module):
                 enable_fusion = True
 
             # Pass target_audio_layer to laion_clap.CLAP_Module constructor
-            self.model = laion_clap.CLAP_Module(
-                enable_fusion=enable_fusion, target_audio_layer_name=target_audio_layer
-            ).to("cuda")
-            self.model.load_ckpt(model_id=model_id)
+
+            if model_id == 5:
+                self.model = laion_clap.CLAP_Module(
+                    enable_fusion=enable_fusion,
+                    target_audio_layer_name=target_audio_layer,
+                    amodel="HTSAT-tiny",
+                    tmodel="roberta",
+                ).to("cuda")
+                self.model.load_ckpt(ckpt="./models/epoch_25.pt")
+            else:
+                self.model = laion_clap.CLAP_Module(
+                    enable_fusion=enable_fusion,
+                    target_audio_layer_name=target_audio_layer,
+                ).to("cuda")
+                self.model.load_ckpt(model_id=model_id)
 
         self.model.eval()
 
@@ -231,9 +242,9 @@ class CLAP(nn.Module):
 
 
 if __name__ == "__main__":
-    desired_layer = "layers.2.blocks.0"
-    clap_instance = CLAP(model_id=1, target_audio_layer=desired_layer)
+    # desired_layer = "layers.2.blocks.0"
+    # clap_instance = CLAP(model_id=1, target_audio_layer=desired_layer)
 
-    # clap_instance = CLAP(model_id=1)
+    clap_instance = CLAP(model_id=1)
 
     evaluate_qvim_system(clap_instance.compute_similarities, data_path="data/DEV/")

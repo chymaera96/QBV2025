@@ -79,7 +79,6 @@ def main():
         "--seed",
         "42",
         # Skip initial evaluation to avoid the error
-        "--no-eval",  # Add this back temporarily
         # Enable wandb logging
         "--wandb",
     ]

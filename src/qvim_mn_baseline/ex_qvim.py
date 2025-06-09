@@ -18,6 +18,7 @@ from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
 from qvim_mn_baseline.mn.model import get_model as get_mobilenet
+from qvim_mn_baseline.projection import MobileNetWithProjection
 from qvim_mn_baseline.utils import NAME_TO_WIDTH
 from qvim_mn_baseline.metrics import compute_mrr, compute_ndcg
 
@@ -44,34 +45,34 @@ class QVIMModule(pl.LightningModule):
             fmax_aug_range=config.fmax_aug_range
         )
 
-        encoder = get_mobilenet(
-            width_mult=NAME_TO_WIDTH(config.pretrained_name),
-            pretrained_name=None
-        )
+        # encoder = get_mobilenet(
+        #     width_mult=NAME_TO_WIDTH(config.pretrained_name),
+        #     pretrained_name=None
+        # )
 
-        if config.pretrained_ckpt_path:
-            print(f"Loading pretrained encoder from {config.pretrained_ckpt_path}")
-            try:
-                ckpt = torch.load(config.pretrained_ckpt_path, map_location='cpu')
-                state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+        # if config.pretrained_ckpt_path:
+        #     print(f"Loading pretrained encoder from {config.pretrained_ckpt_path}")
+        #     try:
+        #         ckpt = torch.load(config.pretrained_ckpt_path, map_location='cpu')
+        #         state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
 
-                # Strict loading to ensure all keys match
-                encoder.load_state_dict({
-                    k.replace('encoder.', ''): v
-                    for k, v in state_dict.items()
-                    if k.startswith('encoder.')
-                }, strict=True)
+        #         # Strict loading to ensure all keys match
+        #         encoder.load_state_dict({
+        #             k.replace('encoder.', ''): v
+        #             for k, v in state_dict.items()
+        #             if k.startswith('encoder.')
+        #         }, strict=True)
 
-                print("Pretrained weights loaded successfully.")
-            except Exception as e:
-                print(f"Error loading checkpoint: {e}")
-                print(f"Current working directory: {os.getcwd()}")
-                raise RuntimeError("Failed to load pretrained weights. Exiting.")
-        else:
-            raise ValueError("Pretrained checkpoint path not provided. Exiting.")
+        #         print("Pretrained weights loaded successfully.")
+        #     except Exception as e:
+        #         print(f"Error loading checkpoint: {e}")
+        #         print(f"Current working directory: {os.getcwd()}")
+        #         raise RuntimeError("Failed to load pretrained weights. Exiting.")
+        # else:
+        #     raise ValueError("Pretrained checkpoint path not provided. Exiting.")
 
-        self.imitation_encoder = encoder
-        self.reference_encoder = deepcopy(encoder)
+        self.imitation_encoder = MobileNetWithProjection(pretrained_name=config.pretrained_ckpt_path, projection_dim=128)
+        self.reference_encoder = deepcopy(self.imitation_encoder)
 
         initial_tau = torch.zeros((1,)) + config.initial_tau
         self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)

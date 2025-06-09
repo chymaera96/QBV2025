@@ -67,7 +67,7 @@ class MobileNetWithProjection(nn.Module):
             ckpt_path = None
 
         self.encoder = get_model(
-            pretrained_name=pretrained_name,
+            pretrained_name="mn10_as",
             head_type="mlp",
             width_mult=width_mult,
         )

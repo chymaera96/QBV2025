@@ -59,7 +59,7 @@ class MobileNetWithProjection(nn.Module):
     def __init__(self, pretrained_name="mn10_as", projection_dim=128):
         super().__init__()
 
-        if pretrained_name not in NAME_TO_WIDTH:
+        if pretrained_name != "mn10_as":
             width_mult = 1.0
             ckpt_path = pretrained_name
         else:

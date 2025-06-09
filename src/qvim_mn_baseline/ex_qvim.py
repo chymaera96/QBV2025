@@ -84,13 +84,21 @@ class QVIMModule(pl.LightningModule):
 
     def forward_imitation(self, imitations):
         imitations = self.mel(imitations).unsqueeze(1)
-        y_imitation = self.imitation_encoder(imitations)[1]
+        output = self.imitation_encoder(imitations)
+        if isinstance(output, tuple):
+            y_imitation = output[1]
+        else:
+            y_imitation = output
         y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
         return y_imitation
 
     def forward_reference(self, items):
         items = self.mel(items).unsqueeze(1)
-        y_reference = self.reference_encoder(items)[1]
+        output = self.reference_encoder(items)
+        if isinstance(output, tuple):
+            y_reference = output[1]
+        else:
+            y_reference = output
         y_reference = torch.nn.functional.normalize(y_reference, dim=1)
         return y_reference
 

@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 import sys
 
@@ -9,6 +10,7 @@ import librosa
 import numpy as np
 import torch
 import torch.nn as nn
+import wandb
 from ced_model.feature_extraction_ced import (
     CedFeatureExtractor as HFCedFeatureExtractor,
 )
@@ -17,7 +19,6 @@ from scipy import interpolate
 from torch import nn
 from tqdm import tqdm
 
-import wandb
 from src.retrieval.evaluate import evaluate_qvim_system
 
 
@@ -52,6 +53,7 @@ class CED(nn.Module):
         use_pitch_features=True,
         use_mlp_projection=False,
         wandb_run_path=None,
+        pretrained_projection_path=None,
     ):
         super(CED, self).__init__()
 
@@ -73,7 +75,7 @@ class CED(nn.Module):
             print("Trying to clear cache and reload...")
 
             # Clear the cached files and try again
-            import json
+
             import shutil
             from pathlib import Path
 
@@ -101,8 +103,73 @@ class CED(nn.Module):
 
         # Load MLP projection if specified
         self.mlp_projection = None
-        if use_mlp_projection and wandb_run_path:
-            self.mlp_projection = self._load_mlp_projection(wandb_run_path)
+        if use_mlp_projection:
+            if pretrained_projection_path:
+                self.mlp_projection = self._load_pretrained_projection(
+                    pretrained_projection_path
+                )
+            elif wandb_run_path:
+                self.mlp_projection = self._load_mlp_projection(wandb_run_path)
+
+    def _load_pretrained_projection(self, model_path):
+        """Load the MLP projection from a local .pt file with hard-coded config"""
+        try:
+            # Hard-coded configuration based on the provided config
+            input_dim = 768  # CED-base dimension
+            hidden_dims = []  # Empty hidden dims from config
+            output_dim = 256  # projection_output_dim from config
+            dropout_rate = 0.2  # dropout_rate from config
+
+            print(
+                f"Creating MLP with hard-coded config: input_dim={input_dim}, hidden_dims={hidden_dims}, output_dim={output_dim}"
+            )
+
+            # Create MLP with correct architecture
+            mlp = MLPProjection(input_dim, hidden_dims, output_dim, dropout_rate)
+
+            # Load the checkpoint
+            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+            print(f"Loaded checkpoint keys: {checkpoint.keys()}")
+
+            # Get the state dict and handle key renaming if needed
+            if "model_state_dict" in checkpoint:
+                state_dict = checkpoint["model_state_dict"]
+            else:
+                state_dict = checkpoint
+
+            # Check if keys need renaming from 'mlp.*' to 'projection.*'
+            original_keys = list(state_dict.keys())
+            if any(key.startswith("mlp.") for key in original_keys):
+                print("Renaming keys from 'mlp.*' to 'projection.*'")
+                new_state_dict = {}
+                for key, value in state_dict.items():
+                    if key.startswith("mlp."):
+                        new_key = key.replace("mlp.", "projection.")
+                        new_state_dict[new_key] = value
+                    else:
+                        new_state_dict[key] = value
+                state_dict = new_state_dict
+
+            print(f"Final state dict keys: {list(state_dict.keys())}")
+
+            # Load the state dict
+            mlp.load_state_dict(state_dict)
+
+            mlp.eval()
+            mlp.to(self.device)
+
+            for param in mlp.parameters():
+                param.requires_grad = False
+
+            print(f"Successfully loaded pretrained MLP projection from {model_path}")
+            return mlp
+
+        except Exception as e:
+            print(f"Error loading pretrained MLP projection: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return None
 
     def _load_mlp_projection(self, run_path):
         """Load the MLP projection from wandb artifact"""
@@ -583,8 +650,8 @@ if __name__ == "__main__":
         model_name="mispeech/ced-base",
         use_acoustic_features=False,
         use_pitch_features=False,
-        use_mlp_projection=False,
-        wandb_run_path="cplachouras/qvim/3dpe2sjw",
+        use_mlp_projection=True,
+        pretrained_projection_path="src/retrieval/SC_ced-base_aug-both_proj-256.pt",
     )
 
     evaluate_qvim_system(ced_instance.compute_similarities, data_path="data/DEV/")

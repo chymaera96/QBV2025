@@ -10,7 +10,6 @@ import librosa
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb
 from ced_model.feature_extraction_ced import (
     CedFeatureExtractor as HFCedFeatureExtractor,
 )
@@ -19,13 +18,14 @@ from scipy import interpolate
 from torch import nn
 from tqdm import tqdm
 
+import wandb
 from src.retrieval.evaluate import evaluate_qvim_system
 
 
 class MLPProjection(nn.Module):
     """MLP projection layer to match the one used in training"""
 
-    def __init__(self, input_dim, hidden_dims, output_dim, dropout_rate=0.2):
+    def __init__(self, input_dim, hidden_dims, output_dim, dropout_rate=0.0):
         super().__init__()
         layers = []
         current_dim = input_dim
@@ -118,7 +118,7 @@ class CED(nn.Module):
             input_dim = 768  # CED-base dimension
             hidden_dims = []  # Empty hidden dims from config
             output_dim = 256  # projection_output_dim from config
-            dropout_rate = 0.2  # dropout_rate from config
+            dropout_rate = 0.0  # dropout_rate from config
 
             print(
                 f"Creating MLP with hard-coded config: input_dim={input_dim}, hidden_dims={hidden_dims}, output_dim={output_dim}"
@@ -213,7 +213,7 @@ class CED(nn.Module):
 
             hidden_dims = config.get("hidden_dims", [])  # This might be empty!
             output_dim = config.get("projection_output_dim", 128)
-            dropout_rate = config.get("dropout_rate", 0.2)
+            dropout_rate = config.get("dropout_rate", 0.0)
 
             print(
                 f"Creating MLP with: input_dim={input_dim}, hidden_dims={hidden_dims}, output_dim={output_dim}"

@@ -6,6 +6,7 @@
 /qvim/
 
 *.pt
+!SC_ced-base_aug-both_proj-256.pt
 *.ckpt
 
 .idea

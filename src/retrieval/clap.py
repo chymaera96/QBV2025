@@ -245,6 +245,7 @@ if __name__ == "__main__":
     # desired_layer = "layers.2.blocks.0"
     # clap_instance = CLAP(model_id=1, target_audio_layer=desired_layer)
 
-    clap_instance = CLAP(model_id=1)
+    clap_instance = CLAP(model_id=5
+    )
 
     evaluate_qvim_system(clap_instance.compute_similarities, data_path="data/DEV/")

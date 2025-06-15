@@ -21,8 +21,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.sample_rate = sample_rate
         self.duration = duration
 
-        # self.augment_ref = Augment(sample_rate=sample_rate, max_transforms=3)
-        # self.augment_imit = Augment(sample_rate=sample_rate, max_transforms=3)
+        self.augment = Augment(sample_rate=sample_rate, max_transforms=5)
 
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),
@@ -89,12 +88,12 @@ class VimSketchDataset(torch.utils.data.Dataset):
         row = self.all_pairs.iloc[index]
 
         reference_path = os.path.join(self.dataset_dir, 'references', row['filename_reference'])
-        # reference = self.augment_ref(self.load_audio(reference_path))
-        reference = self.load_audio(reference_path)
+        reference = self.augment(self.load_audio(reference_path))
+        # reference = self.load_audio(reference_path)
         reference = self.__pad_or_truncate__(reference)
 
         imitation_path = os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])
-        imitation = self.augment_imit(self.load_audio(imitation_path))
+        imitation = self.augment(self.load_audio(imitation_path))
         # imitation = self.load_audio(imitation_path)
         imitation = self.__pad_or_truncate__(imitation)
 
@@ -224,7 +223,7 @@ class VocalSketchDataset(torch.utils.data.Dataset):
         self.augment = Augment(sample_rate=sample_rate, max_transforms=5)
 
         imitation_df = pd.read_csv(
-            os.path.join(dataset_dir, f'{dataset_dir.split("/")[-1]}.csv'),
+            os.path.join(os.path.dirname(dataset_dir), f'{dataset_dir.split("/")[-1]}.csv'),
         )
 
         # Normalize included column to bool

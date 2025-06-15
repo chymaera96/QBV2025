@@ -242,7 +242,7 @@ def train(config):
     )
 
     neg2_ds = VocalSketchDataset(
-        os.path.join(config.neg_path, 'vocal_imitations_set_2'),
+        os.path.join(config.neg_path, 'vocal_imitations_set2'),
         sample_rate=config.sample_rate,
         duration=config.duration
     )

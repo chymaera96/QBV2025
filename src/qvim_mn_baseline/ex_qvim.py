@@ -86,7 +86,8 @@ class QVIMModule(pl.LightningModule):
         out = self.encoder(x)
         if isinstance(out, tuple):
             out = out[1]
-        return torch.nn.functional.normalize(out, dim=1)
+        # return torch.nn.functional.normalize(out, dim=1)
+        return out
 
 
 
@@ -124,8 +125,8 @@ class QVIMModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
 
         with torch.no_grad():
-            y_imitation = self.forward_pass(batch['imitation'])
-            y_reference = self.forward_pass(batch['reference'])
+            y_imitation = F.normalize(self.forward_pass(batch['imitation']), dim=1)
+            y_reference = F.normalize(self.forward_pass(batch['reference']), dim=1)
 
         self.validation_output.extend([
             {

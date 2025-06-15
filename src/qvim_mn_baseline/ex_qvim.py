@@ -101,7 +101,7 @@ class QVIMModule(pl.LightningModule):
         d_ap = 1 - cos_sim_ap
         d_an = 1 - cos_sim_an
 
-        margin = 0.2
+        margin = self.config.margin
         mask = (d_ap < d_an) & (d_an < d_ap + margin)
 
         if mask.sum() == 0:
@@ -359,7 +359,8 @@ if __name__ == '__main__':
                         help="precision (default='bf16-mixed') {32, 16, bf16, bf16-mixed}")
     parser.add_argument('--sync_batchnorm', action='store_true',
                         help="Enable synchronized batch normalization across GPUs. Default is False.")
-
+    parser.add_argument('--margin', type=float, default=0.2,
+                        help="Margin for the triplet loss function.")
     # Preprocessing
     parser.add_argument('--duration', type=float, default=10.0,
                         help="Duration of audio clips in seconds.")

@@ -222,7 +222,7 @@ class VocalSketchDataset(torch.utils.data.Dataset):
         )
 
         self.imitation_filenames = imitation_df['filename'].tolist()
-        self.sound_labels = imitation_df['sound_label'].tolist()
+        self.sound_labels = imitation_df['sound_class'].tolist()
 
         self.cached_files = {}
 

@@ -276,6 +276,7 @@ class VocalSketchDataset(torch.utils.data.Dataset):
             return self.__getitem__((index + 1) % len(self))
 
         # imitation = self.augment(audio)
+        imitation = audio
         imitation = self.__pad_or_truncate__(imitation)
 
         return {

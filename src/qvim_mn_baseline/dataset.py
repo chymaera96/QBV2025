@@ -239,15 +239,22 @@ class VocalSketchDataset(torch.utils.data.Dataset):
     def load_audio(self, path, sr=None):
         if sr is None:
             sr = self.sample_rate
-        if path not in self.cached_files:
-            audio, sr = librosa.load(
+
+        if path in self.cached_files:
+            return self.cached_files[path]
+
+        try:
+            audio, _ = librosa.load(
                 path,
                 sr=sr,
                 mono=True,
                 duration=self.duration
             )
             self.cached_files[path] = audio
-        return self.__pad_or_truncate__(self.cached_files[path], sr=sr)
+        except Exception as e:
+            self.cached_files[path] = None  # mark as invalid
+
+        return self.cached_files[path]
 
     def __pad_or_truncate__(self, audio, sr=None):
         if sr is None:
@@ -263,8 +270,12 @@ class VocalSketchDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         filename = self.imitation_filenames[index]
         path = os.path.join(self.dataset_dir, 'excluded', filename)
-        imitation = self.augment(self.load_audio(path))
-        # imitation = self.load_audio(path)
+        audio = self.load_audio(path)
+        if audio is None:
+            # Return a dummy entry if corrupted
+            return self.__getitem__((index + 1) % len(self))
+
+        imitation = self.augment(audio)
         imitation = self.__pad_or_truncate__(imitation)
 
         return {

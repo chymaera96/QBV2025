@@ -78,6 +78,9 @@ class QVIMModule(pl.LightningModule):
             width_mult=NAME_TO_WIDTH(config.pretrained_name),
             pretrained_name=config.pretrained_name,
         )
+    
+        initial_tau = torch.zeros((1,)) + config.initial_tau
+        self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
 
         self.validation_output = []
 
@@ -94,28 +97,45 @@ class QVIMModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         self.lr_scheduler_step(batch_idx)
 
+        # ===== Embeddings =====
         anchor = self.forward_pass(batch['anchor'])        # (B, D)
         positive = self.forward_pass(batch['positive'])    # (B, D)
         negative = self.forward_pass(batch['negative'])    # (B, D)
 
-        margin = self.config.margin
+        # === Contrastive loss ===
+        C = torch.matmul(anchor, positive.T)  # (B, B)
+        C = C / torch.abs(self.tau)
+        C_text = torch.log_softmax(C, dim=1)
 
-        # Triplet loss using cosine distance: 1 - cosine_similarity
-        # embeddings are already normalized
-        sim_ap = F.cosine_similarity(anchor, positive, dim=1)
-        sim_an = F.cosine_similarity(anchor, negative, dim=1)
+        paths = np.array([hash(p) for i, p in enumerate(batch['imitation_filename'])])
+        I = torch.tensor(paths[None, :] == paths[:, None])
 
-        # Convert to distance
-        d_ap = 1 - sim_ap
-        d_an = 1 - sim_an
 
-        # Standard triplet margin loss formulation
-        loss = (d_ap - d_an + margin).clamp(min=0).mean()
+        contrastive_loss = - C_text[torch.where(I)].mean()
 
-        self.log('train/loss', loss)
-        self.log('train/active_triplets', (d_ap - d_an + margin > 0).sum().item())
+        # === Triplet loss ===
+        d_ap = F.pairwise_distance(anchor, positive)
+        d_an = F.pairwise_distance(anchor, negative)
+        triplet_margin = self.config.margin
+        triplet_loss = F.triplet_margin_loss(anchor, positive, negative, margin=triplet_margin, p=2)
 
-        return loss
+        # === Dynamic weighting ===
+        with torch.no_grad():
+            active = (d_ap + triplet_margin > d_an).sum()
+            active_ratio = active.item() / anchor.size(0)
+            self.log('train/active_triplets', active.item())
+
+        # Start with small weight if collapse is likely
+        alpha = min(1.0, max(0.1, active_ratio))  # Clamp between 0.1 and 1.0
+        total_loss = contrastive_loss + alpha * triplet_loss
+
+        # Logging
+        self.log('train/loss', total_loss)
+        self.log('train/loss_contrastive', contrastive_loss)
+        self.log('train/loss_triplet', triplet_loss)
+        self.log('train/alpha_triplet', alpha)
+
+        return total_loss
 
 
 

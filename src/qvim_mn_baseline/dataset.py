@@ -281,7 +281,7 @@ class VocalSketchDataset(torch.utils.data.Dataset):
         return {
             'imitation': imitation,
             'imitation_filename': filename,
-            'tags': tuple()  # placeholder for future metadata
+            'sound_label': self.sound_labels[index],
         }
 
     def __len__(self):
@@ -314,6 +314,7 @@ class TripletBatchDataset(torch.utils.data.Dataset):
 
         neg_sample = self.negative_dataset[neg_index]
         negative = neg_sample['imitation']
+        negative_class = neg_sample['sound_label']
 
         return {
             'anchor': anchor,
@@ -323,7 +324,7 @@ class TripletBatchDataset(torch.utils.data.Dataset):
             'positive_filename': ap_sample['imitation_filename'],
             'negative_filename': neg_sample['imitation_filename'],
             'anchor_class': anchor_class,
-            'negative_class': self.negative_dataset.sound_labels[neg_index]
+            'negative_class': negative_class,
         }
 
     def __len__(self):

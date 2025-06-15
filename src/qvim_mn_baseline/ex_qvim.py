@@ -106,13 +106,15 @@ class QVIMModule(pl.LightningModule):
 
         # Standard triplet mining approaches:
         mask = d_ap + margin > d_an  # Semi-hard negatives
-        # or
-        mask = d_ap > d_an  # Hard negatives only
 
         self.log('train/active_triplets', mask.sum().item())
 
         if mask.sum() == 0:
-            loss = torch.zeros(1, device=self.device, requires_grad=True)
+            # Don't use a leaf tensor - this breaks gradients!
+            # Instead, use hardest triplets
+            n_hardest = min(10, len(d_ap))  # Take 10 hardest triplets
+            hardest_idx = torch.topk(d_ap - d_an, n_hardest)[1]
+            loss = (d_ap[hardest_idx] - d_an[hardest_idx] + margin).clamp(min=0).mean()
         else:
             loss = (d_ap[mask] - d_an[mask] + margin).mean()
 

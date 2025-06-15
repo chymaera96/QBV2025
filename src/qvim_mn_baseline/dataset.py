@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 import copy
+import random
 
 from hc_baseline.modules.augmentations import Augment
 
@@ -20,8 +21,8 @@ class VimSketchDataset(torch.utils.data.Dataset):
         self.sample_rate = sample_rate
         self.duration = duration
 
-        self.augment_ref = Augment(sample_rate=sample_rate, max_transforms=3)
-        self.augment_imit = Augment(sample_rate=sample_rate, max_transforms=3)
+        # self.augment_ref = Augment(sample_rate=sample_rate, max_transforms=3)
+        # self.augment_imit = Augment(sample_rate=sample_rate, max_transforms=3)
 
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),
@@ -88,8 +89,8 @@ class VimSketchDataset(torch.utils.data.Dataset):
         row = self.all_pairs.iloc[index]
 
         reference_path = os.path.join(self.dataset_dir, 'references', row['filename_reference'])
-        reference = self.augment_ref(self.load_audio(reference_path))
-        # reference = self.load_audio(reference_path)
+        # reference = self.augment_ref(self.load_audio(reference_path))
+        reference = self.load_audio(reference_path)
         reference = self.__pad_or_truncate__(reference)
 
         imitation_path = os.path.join(self.dataset_dir, 'vocal_imitations', row['filename_imitation'])
@@ -213,17 +214,28 @@ class AESAIMLA_DEV(torch.utils.data.Dataset):
         return len(self.all_pairs)
     
 
-class CLRPretrainingDataset(torch.utils.data.Dataset):
+
+class VocalSketchDataset(torch.utils.data.Dataset):
     def __init__(self, dataset_dir, sample_rate=32000, duration=10.0):
         self.dataset_dir = dataset_dir
         self.sample_rate = sample_rate
         self.duration = duration
 
-        self.augment = Augment(sample_rate=sample_rate, max_transforms=3)
+        self.augment = Augment(sample_rate=sample_rate, max_transforms=5)
 
-        self.audio_dir = dataset_dir
-        self.file_list = [f for f in os.listdir(self.audio_dir) if f.endswith('.wav') or f.endswith('.flac')]
+        imitation_df = pd.read_csv(
+            os.path.join(dataset_dir, f'{dataset_dir.split("/")[-1]}.csv'),
+        )
+
+        # Normalize included column to bool
+        imitation_df['included'] = imitation_df['included'].astype(str).str.lower() == "true"
+
+        excluded_df = imitation_df[~imitation_df['included']].copy()
+        self.imitation_filenames = excluded_df['filename'].tolist()
+        self.sound_labels = excluded_df['sound_label'].tolist()
+
         self.cached_files = {}
+
 
     def load_audio(self, path, sr=None):
         if sr is None:
@@ -236,8 +248,7 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
                 duration=self.duration
             )
             self.cached_files[path] = audio
-        # return self.__pad_or_truncate__(self.cached_files[path], sr=sr)
-        return self.cached_files[path]
+        return self.__pad_or_truncate__(self.cached_files[path], sr=sr)
 
     def __pad_or_truncate__(self, audio, sr=None):
         if sr is None:
@@ -246,42 +257,54 @@ class CLRPretrainingDataset(torch.utils.data.Dataset):
         if len(audio) < fixed_length:
             array = np.zeros(fixed_length, dtype="float32")
             array[:len(audio)] = audio
-        if len(audio) >= fixed_length:
+        else:
             array = audio[:fixed_length]
-
-        if isinstance(array, np.ndarray):
-            return torch.from_numpy(array).float()
-        elif isinstance(array, torch.Tensor):
-            return array.float() 
-        # return torch.tensor(array, d
+        return torch.from_numpy(array).float() if isinstance(array, np.ndarray) else array.float()
 
     def __getitem__(self, index):
-        filename = self.file_list[index]
-        filepath = os.path.join(self.dataset_dir, filename)
+        filename = self.imitation_filenames[index]
+        path = os.path.join(self.dataset_dir, 'excluded', filename)
+        imitation = self.augment(self.load_audio(path))
+        # imitation = self.load_audio(path)
+        imitation = self.__pad_or_truncate__(imitation)
 
-        waveform = self.load_audio(filepath)
-        ref_1 = self.augment(waveform)
-        ref_2 = self.augment(copy.deepcopy(waveform))
-        
         return {
-            'reference_1': self.__pad_or_truncate__(ref_1, self.sample_rate),
-            'reference_2': self.__pad_or_truncate__(ref_2, self.sample_rate),
-            'filename': filename
+            'imitation': imitation,
+            'imitation_filename': filename,
+            'tags': tuple()  # placeholder for future metadata
         }
 
     def __len__(self):
-        return len(self.file_list)
+        return len(self.imitation_filenames)
+    
+
+class TripletBatchDataset(torch.utils.data.Dataset):
+    def __init__(self, anchor_positive_dataset, negative_dataset, sample_rate=32000):
+        self.anchor_positive_dataset = anchor_positive_dataset
+        self.negative_dataset = negative_dataset
 
 
 
-# if __name__ == "__main__":
-#     dataset = VimSketchDataset(dataset_dir='data/Vim_Sketch_Dataset', sample_rate=32000, duration=10.0)
-#     for idx in range(len(dataset)):
-#         sample = dataset[idx]
-#         # print(f"Sample {idx}:")
-#         if sample['reference'].shape != torch.Size([480000]):
-#             print(f"Sample reference {idx}: {sample['reference_filename']}")
-#             print(f"  reference shape: {sample['reference'].shape} | type: {type(sample['reference'])}")
-#         if sample['imitation'].shape != torch.Size([320000]):
-#             print(f"Sample imitation {idx}: {sample['reference_filename']}")
-#             print(f"  imitation shape: {sample['imitation'].shape} | type: {type(sample['imitation'])}")
+    def __getitem__(self, index):
+        # Get anchor-positive pair
+        ap_sample = self.anchor_positive_dataset[index]
+        anchor = ap_sample['reference']
+        positive = ap_sample['imitation']
+
+        # Sample a negative imitation
+        neg_index = random.randint(0, len(self.negative_dataset) - 1)
+        neg_sample = self.negative_dataset[neg_index]
+        negative = neg_sample['imitation']
+
+        return {
+            'anchor': anchor,
+            'positive': positive,
+            'negative': negative,
+            'anchor_filename': ap_sample['reference_filename'],
+            'positive_filename': ap_sample['imitation_filename'],
+            'negative_filename': neg_sample['imitation_filename']
+        }
+
+    def __len__(self):
+        return len(self.anchor_positive_dataset)
+

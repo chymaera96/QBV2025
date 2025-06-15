@@ -6,6 +6,7 @@ import copy
 from copy import deepcopy
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
 import pytorch_lightning as pl
@@ -14,7 +15,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV
+from qvim_mn_baseline.dataset import VimSketchDataset, AESAIMLA_DEV, VocalSketchDataset, TripletBatchDataset
 from qvim_mn_baseline.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mn_baseline.mn.preprocess import AugmentMelSTFT
 from qvim_mn_baseline.mn.model import get_model as get_mobilenet
@@ -71,79 +72,53 @@ class QVIMModule(pl.LightningModule):
         # else:
         #     raise ValueError("Pretrained checkpoint path not provided. Exiting.")
 
-        self.imitation_encoder = MobileNetWithProjection(pretrained_name=config.pretrained_ckpt_path, projection_dim=128)
-        self.reference_encoder = deepcopy(self.imitation_encoder)
-
-        initial_tau = torch.zeros((1,)) + config.initial_tau
-        self.tau = torch.nn.Parameter(initial_tau, requires_grad=config.tau_trainable)
+        self.encoder = get_mobilenet(
+            width_mult=NAME_TO_WIDTH(config.pretrained_name),
+            pretrained_name=config.pretrained_name,
+        )
 
         self.validation_output = []
 
-    def forward(self, queries, items):
-        return self.forward_imitation(queries), self.forward_reference(items)
+    def forward_pass(self, x):
+        x = self.mel(x).unsqueeze(1)
+        out = self.encoder(x)
+        if isinstance(out, tuple):
+            out = out[1]
+        return torch.nn.functional.normalize(out, dim=1)
 
-    def forward_imitation(self, imitations):
-        imitations = self.mel(imitations).unsqueeze(1)
-        output = self.imitation_encoder(imitations)
-        if isinstance(output, tuple):
-            y_imitation = output[1]
-        else:
-            y_imitation = output
-        y_imitation = torch.nn.functional.normalize(y_imitation, dim=1)
-        return y_imitation
-
-    def forward_reference(self, items):
-        items = self.mel(items).unsqueeze(1)
-        output = self.reference_encoder(items)
-        if isinstance(output, tuple):
-            y_reference = output[1]
-        else:
-            y_reference = output
-        y_reference = torch.nn.functional.normalize(y_reference, dim=1)
-        return y_reference
 
     def training_step(self, batch, batch_idx):
-
         self.lr_scheduler_step(batch_idx)
 
-        y_imitation, y_reference = self.forward(batch['imitation'], batch['reference'])
+        anchor = self.forward_pass(batch['anchor'])
+        positive = self.forward_pass(batch['positive'])
+        negative = self.forward_pass(batch['negative'])
 
-        C = torch.matmul(y_imitation, y_reference.T)
-        C = C / torch.abs(self.tau)
+        # Use cosine similarity and convert to cosine distance
+        cos_sim_ap = F.cosine_similarity(anchor, positive, dim=1)
+        cos_sim_an = F.cosine_similarity(anchor, negative, dim=1)
 
-        C_text = torch.log_softmax(C, dim=1)
+        d_ap = 1 - cos_sim_ap
+        d_an = 1 - cos_sim_an
 
-        paths = np.array([hash(p) for i, p in enumerate(batch['imitation_filename'])])
-        I = torch.tensor(paths[None, :] == paths[:, None])
+        margin = 0.2
+        mask = (d_ap < d_an) & (d_an < d_ap + margin)
 
+        if mask.sum() == 0:
+            loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        else:
+            loss = (d_ap[mask] - d_an[mask] + margin).mean()
 
-        loss = - C_text[torch.where(I)].mean()
-
-        self.log('train/loss', loss, )
-        self.log('train/tau', self.tau)
-
+        self.log('train/loss', loss)
         return loss
+
+
 
     def validation_step(self, batch, batch_idx):
 
         with torch.no_grad():
-            y_imitation = self.forward_imitation(batch['imitation'])
-            y_reference = self.forward_reference(batch['reference'])
-
-        C = torch.matmul(y_imitation, y_reference.T)
-        C = C / torch.abs(self.tau)
-
-        C_text = torch.log_softmax(C, dim=1)
-
-        paths = np.array([hash(p) for i, p in enumerate(batch['imitation_filename'])])
-        I = torch.tensor(paths[None, :] == paths[:, None])
-
-
-        loss = - C_text[torch.where(I)].mean()
-
-        self.log('val/loss', loss, )
-        self.log('val/tau', self.tau)
-
+            y_imitation = self.forward_pass(batch['imitation'])
+            y_reference = self.forward_pass(batch['reference'])
 
         self.validation_output.extend([
             {
@@ -254,23 +229,39 @@ def train(config):
         config=config
     )
 
-    train_ds = VimSketchDataset(
+    ap_ds = VimSketchDataset(
         os.path.join(config.dataset_path, 'Vim_Sketch_Dataset'),
         sample_rate=config.sample_rate,
         duration=config.duration
     )
 
-    eval_ds = AESAIMLA_DEV(
-        os.path.join(config.dataset_path, 'qvim-dev'),
+    neg1_ds = VocalSketchDataset(
+        os.path.join(config.neg_path, 'vocal_imitations'),
         sample_rate=config.sample_rate,
         duration=config.duration
     )
 
+    neg2_ds = VocalSketchDataset(
+        os.path.join(config.neg_path, 'vocal_imitations_set_2'),
+        sample_rate=config.sample_rate,
+        duration=config.duration
+    )
+
+    neg_ds = torch.utils.data.ConcatDataset([neg1_ds, neg2_ds])
+
+    train_ds = TripletBatchDataset(ap_ds, neg_ds)
     train_dl = DataLoader(
         dataset=train_ds,
         num_workers=config.num_workers,
         batch_size=config.batch_size,
         shuffle=True
+    )
+
+
+    eval_ds = AESAIMLA_DEV(
+        os.path.join(config.dataset_path, 'qvim-dev'),
+        sample_rate=config.sample_rate,
+        duration=config.duration
     )
 
     eval_dl = DataLoader(
@@ -334,6 +325,8 @@ if __name__ == '__main__':
                         help="Path to store the checkpoints. Use None to disable saving.")
     parser.add_argument('--dataset_path', type=str, default='data',
                         help="Path to the data sets.")
+    parser.add_argument('--neg_path', type=str, default='/data/scratch/acw723/VocalSketchDataset',
+                        help="Path to the first negative dataset (vocal imitations).")
 
     # Encoder architecture
     parser.add_argument('--pretrained_name', type=str, default="mn10_as",

@@ -86,37 +86,34 @@ class QVIMModule(pl.LightningModule):
         out = self.encoder(x)
         if isinstance(out, tuple):
             out = out[1]
-        # return torch.nn.functional.normalize(out, dim=1)
-        return out
+        return torch.nn.functional.normalize(out, dim=1)
+        # return out
 
 
 
     def training_step(self, batch, batch_idx):
         self.lr_scheduler_step(batch_idx)
 
-        # Forward pass
         anchor = self.forward_pass(batch['anchor'])        # (B, D)
         positive = self.forward_pass(batch['positive'])    # (B, D)
         negative = self.forward_pass(batch['negative'])    # (B, D)
 
-        # Standard triplet loss (Euclidean distance)
-        loss = F.triplet_margin_loss(
-            anchor,
-            positive,
-            negative,
-            margin=self.config.margin,
-            p=2,
-            reduction='mean'
-        )
+        margin = self.config.margin
+
+        # Triplet loss using cosine distance: 1 - cosine_similarity
+        # embeddings are already normalized
+        sim_ap = F.cosine_similarity(anchor, positive, dim=1)
+        sim_an = F.cosine_similarity(anchor, negative, dim=1)
+
+        # Convert to distance
+        d_ap = 1 - sim_ap
+        d_an = 1 - sim_an
+
+        # Standard triplet margin loss formulation
+        loss = (d_ap - d_an + margin).clamp(min=0).mean()
 
         self.log('train/loss', loss)
-
-        # Optional: track how many triplets are active (loss > 0)
-        with torch.no_grad():
-            d_ap = F.pairwise_distance(anchor, positive)
-            d_an = F.pairwise_distance(anchor, negative)
-            active = (d_ap + self.config.margin > d_an).sum()
-            self.log('train/active_triplets', active)
+        self.log('train/active_triplets', (d_ap - d_an + margin > 0).sum().item())
 
         return loss
 
@@ -125,8 +122,10 @@ class QVIMModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
 
         with torch.no_grad():
-            y_imitation = F.normalize(self.forward_pass(batch['imitation']), dim=1)
-            y_reference = F.normalize(self.forward_pass(batch['reference']), dim=1)
+            # y_imitation = F.normalize(self.forward_pass(batch['imitation']), dim=1)
+            # y_reference = F.normalize(self.forward_pass(batch['reference']), dim=1)
+            y_imitation = self.forward_pass(batch['imitation'])
+            y_reference = self.forward_pass(batch['reference'])
 
         self.validation_output.extend([
             {

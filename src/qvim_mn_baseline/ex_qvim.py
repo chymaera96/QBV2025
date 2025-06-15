@@ -107,7 +107,7 @@ class QVIMModule(pl.LightningModule):
         C = C / torch.abs(self.tau)
         C_text = torch.log_softmax(C, dim=1)
 
-        paths = np.array([hash(p) for i, p in enumerate(batch['imitation_filename'])])
+        paths = np.array([hash(p) for i, p in enumerate(batch['positive_filename'])])
         I = torch.tensor(paths[None, :] == paths[:, None])
 
 

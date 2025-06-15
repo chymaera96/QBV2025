@@ -92,35 +92,32 @@ class QVIMModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         self.lr_scheduler_step(batch_idx)
 
-        anchor = self.forward_pass(batch['anchor'])
-        positive = self.forward_pass(batch['positive'])
-        negative = self.forward_pass(batch['negative'])
+        anchor = self.forward_pass(batch['anchor'])        # (B, D)
+        positive = self.forward_pass(batch['positive'])    # (B, D)
+        negative = self.forward_pass(batch['negative'])    # (B, D)
+
         margin = self.config.margin
 
-        # Use cosine similarity and convert to cosine distance
-        cos_sim_ap = F.cosine_similarity(anchor, positive, dim=1).clamp(-1, 1)
-        cos_sim_an = F.cosine_similarity(anchor, negative, dim=1).clamp(-1, 1)
+        # Pairwise cosine distances
+        d_ap = 1 - F.cosine_similarity(anchor, positive, dim=1)  # (B,)
+        
+        # Negative mining: Find hardest negative for each anchor
+        sim_matrix = F.cosine_similarity(anchor.unsqueeze(1), negative.unsqueeze(0), dim=2)  # (B, B)
+        d_an_matrix = 1 - sim_matrix  # cosine distances
 
-        d_ap = 1 - cos_sim_ap
-        d_an = 1 - cos_sim_an
+        # Zero out the diagonal to avoid anchor=negative
+        eye = torch.eye(d_an_matrix.size(0), device=self.device)
+        d_an_matrix = d_an_matrix + eye * 10.0  # make self-pairs "very far"
 
-        # Standard triplet mining approaches:
-        mask = d_ap + margin > d_an  # Semi-hard negatives
+        hardest_neg_dists, hardest_neg_indices = d_an_matrix.min(dim=1)
+        
+        # Construct loss using hardest negatives
+        triplet_loss = (d_ap - hardest_neg_dists + margin).clamp(min=0).mean()
 
-        self.log('train/active_triplets', mask.sum().item())
+        self.log('train/loss', triplet_loss)
+        self.log('train/active_triplets', (d_ap - hardest_neg_dists + margin > 0).sum().item())
 
-        if mask.sum() == 0:
-            # Don't use a leaf tensor - this breaks gradients!
-            # Instead, use hardest triplets
-            n_hardest = min(10, len(d_ap))  # Take 10 hardest triplets
-            hardest_idx = torch.topk(d_ap - d_an, n_hardest)[1]
-            loss = (d_ap[hardest_idx] - d_an[hardest_idx] + margin).clamp(min=0).mean()
-        else:
-            loss = (d_ap[mask] - d_an[mask] + margin).mean()
-
-        self.log('train/loss', loss)
-        return loss
-
+        return triplet_loss
 
 
     def validation_step(self, batch, batch_idx):

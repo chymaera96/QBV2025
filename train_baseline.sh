@@ -11,4 +11,4 @@ python src/qvim_mn_baseline/ex_qvim.py --precision bf16-mixed \
                                         --batch_size 2048 \
                                         --n_epochs 20 \
                                         --margin 0.4 \
-                                        --id sht1
+                                        --id sht3

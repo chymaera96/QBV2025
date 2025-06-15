@@ -220,8 +220,8 @@ def train(config):
     # Train dual encoder for QBV
 
     # download the data set if the folder does not exist
-    download_vimsketch_dataset(config.dataset_path)
-    download_qvim_dev_dataset(config.dataset_path)
+    # download_vimsketch_dataset(config.dataset_path)
+    # download_qvim_dev_dataset(config.dataset_path)
 
     wandb_logger = WandbLogger(
         project=config.project,

@@ -98,26 +98,23 @@ class QVIMModule(pl.LightningModule):
 
         margin = self.config.margin
 
-        # Pairwise cosine distances
-        d_ap = 1 - F.cosine_similarity(anchor, positive, dim=1)  # (B,)
-        
-        # Negative mining: Find hardest negative for each anchor
-        sim_matrix = F.cosine_similarity(anchor.unsqueeze(1), negative.unsqueeze(0), dim=2)  # (B, B)
-        d_an_matrix = 1 - sim_matrix  # cosine distances
+        # Triplet loss using cosine distance: 1 - cosine_similarity
+        # embeddings are already normalized
+        sim_ap = F.cosine_similarity(anchor, positive, dim=1)
+        sim_an = F.cosine_similarity(anchor, negative, dim=1)
 
-        # Zero out the diagonal to avoid anchor=negative
-        eye = torch.eye(d_an_matrix.size(0), device=self.device)
-        d_an_matrix = d_an_matrix + eye * 10.0  # make self-pairs "very far"
+        # Convert to distance
+        d_ap = 1 - sim_ap
+        d_an = 1 - sim_an
 
-        hardest_neg_dists, hardest_neg_indices = d_an_matrix.min(dim=1)
-        
-        # Construct loss using hardest negatives
-        triplet_loss = (d_ap - hardest_neg_dists + margin).clamp(min=0).mean()
+        # Standard triplet margin loss formulation
+        loss = (d_ap - d_an + margin).clamp(min=0).mean()
 
-        self.log('train/loss', triplet_loss)
-        self.log('train/active_triplets', (d_ap - hardest_neg_dists + margin > 0).sum().item())
+        self.log('train/loss', loss)
+        self.log('train/active_triplets', (d_ap - d_an + margin > 0).sum().item())
 
-        return triplet_loss
+        return loss
+
 
 
     def validation_step(self, batch, batch_idx):

@@ -10,19 +10,12 @@ import random
 from hc_baseline.modules.augmentations import Augment
 
 class VimSketchDataset(torch.utils.data.Dataset):
-
-    def __init__(
-            self,
-            dataset_dir,
-            sample_rate=32000,
-            duration=10.0
-    ):
+    def __init__(self, dataset_dir, sample_rate=32000, duration=10.0):
         self.dataset_dir = dataset_dir
         self.sample_rate = sample_rate
         self.duration = duration
 
-        # self.augment = Augment(sample_rate=sample_rate, max_transforms=5)
-
+        # Read references
         reference_filenames = pd.read_csv(
             os.path.join(dataset_dir, 'reference_file_names.csv'),
             sep='\t',
@@ -33,24 +26,25 @@ class VimSketchDataset(torch.utils.data.Dataset):
             lambda x: "_".join(x.split('_')[1:])
         )
 
+        # Read imitations with named columns
         imitation_file_names = pd.read_csv(
-            os.path.join(dataset_dir, 'vocal_imitation_file_names.csv'),
-            sep='\t',
-            header=None,
-            names=['filename']
+            os.path.join(dataset_dir, 'vim_with_labels.csv')
         )
         imitation_file_names['reference_id'] = imitation_file_names['filename'].transform(
             lambda x: "_".join(x.split('_')[1:])
         )
 
+        # Merge on reference_id to get anchor-positive pairs and keep sound_class
         self.all_pairs = imitation_file_names.merge(
             reference_filenames,
             left_on="reference_id",
-            right_on="reference_id", how="left",
+            right_on="reference_id",
+            how="left",
             suffixes=('_imitation', '_reference')
         )
 
         self.cached_files = {}
+
 
     def load_audio(self, path, sr=None):
         if sr is None:
@@ -106,6 +100,7 @@ class VimSketchDataset(torch.utils.data.Dataset):
             'imitation_filename': row['filename_imitation'],
             'reference': reference,
             'imitation': imitation,
+            'anchor_class': row.get('sound_class', None),
 
         }
 
@@ -223,17 +218,21 @@ class VocalSketchDataset(torch.utils.data.Dataset):
         # self.augment = Augment(sample_rate=sample_rate, max_transforms=5)
 
         imitation_df = pd.read_csv(
-            os.path.join(os.path.dirname(dataset_dir), f'{dataset_dir.split("/")[-1]}.csv'),
+            os.path.join(os.path.dirname(dataset_dir), f'{dataset_dir.split("/")[-1]}_class.csv'),
         )
 
-        # Normalize included column to bool
-        imitation_df['included'] = imitation_df['included'].astype(str).str.lower() == "true"
-
-        excluded_df = imitation_df[~imitation_df['included']].copy()
-        self.imitation_filenames = excluded_df['filename'].tolist()
-        self.sound_labels = excluded_df['sound_label'].tolist()
+        self.imitation_filenames = imitation_df['filename'].tolist()
+        self.sound_labels = imitation_df['sound_label'].tolist()
 
         self.cached_files = {}
+
+        # Build index by class
+        self.class_to_indices = {}
+        for idx, label in enumerate(self.sound_labels):
+            label = str(label).lower()
+            if label not in self.class_to_indices:
+                self.class_to_indices[label] = []
+            self.class_to_indices[label].append(idx)
 
 
     def load_audio(self, path, sr=None):
@@ -290,20 +289,29 @@ class VocalSketchDataset(torch.utils.data.Dataset):
     
 
 class TripletBatchDataset(torch.utils.data.Dataset):
-    def __init__(self, anchor_positive_dataset, negative_dataset, sample_rate=32000):
+    def __init__(self, anchor_positive_dataset, negative_dataset):
         self.anchor_positive_dataset = anchor_positive_dataset
         self.negative_dataset = negative_dataset
 
-
+        # Pull class mapping from the negative dataset
+        self.class_to_neg_indices = getattr(negative_dataset, 'class_to_indices', {})
+        self.neg_dataset_len = len(self.negative_dataset)
 
     def __getitem__(self, index):
-        # Get anchor-positive pair
         ap_sample = self.anchor_positive_dataset[index]
         anchor = ap_sample['reference']
         positive = ap_sample['imitation']
+        
+        anchor_class = ap_sample.get('anchor_class', None)
+        anchor_class = str(anchor_class).lower() if anchor_class else None
 
-        # Sample a negative imitation
-        neg_index = random.randint(0, len(self.negative_dataset) - 1)
+        # Try same-class negative sampling
+        if anchor_class in self.class_to_neg_indices and self.class_to_neg_indices[anchor_class]:
+            neg_index = random.choice(self.class_to_neg_indices[anchor_class])
+        else:
+            # Fallback to random negative
+            neg_index = random.randint(0, self.neg_dataset_len - 1)
+
         neg_sample = self.negative_dataset[neg_index]
         negative = neg_sample['imitation']
 
@@ -313,9 +321,10 @@ class TripletBatchDataset(torch.utils.data.Dataset):
             'negative': negative,
             'anchor_filename': ap_sample['reference_filename'],
             'positive_filename': ap_sample['imitation_filename'],
-            'negative_filename': neg_sample['imitation_filename']
+            'negative_filename': neg_sample['imitation_filename'],
+            'anchor_class': anchor_class,
+            'negative_class': self.negative_dataset.sound_labels[neg_index]
         }
 
     def __len__(self):
         return len(self.anchor_positive_dataset)
-

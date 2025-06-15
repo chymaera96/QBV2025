@@ -95,19 +95,24 @@ class QVIMModule(pl.LightningModule):
         anchor = self.forward_pass(batch['anchor'])
         positive = self.forward_pass(batch['positive'])
         negative = self.forward_pass(batch['negative'])
+        margin = self.config.margin
 
         # Use cosine similarity and convert to cosine distance
-        cos_sim_ap = F.cosine_similarity(anchor, positive, dim=1)
-        cos_sim_an = F.cosine_similarity(anchor, negative, dim=1)
+        cos_sim_ap = F.cosine_similarity(anchor, positive, dim=1).clamp(-1, 1)
+        cos_sim_an = F.cosine_similarity(anchor, negative, dim=1).clamp(-1, 1)
 
         d_ap = 1 - cos_sim_ap
         d_an = 1 - cos_sim_an
 
-        margin = self.config.margin
-        mask = (d_ap < d_an) & (d_an < d_ap + margin)
+        # Standard triplet mining approaches:
+        mask = d_ap + margin > d_an  # Semi-hard negatives
+        # or
+        mask = d_ap > d_an  # Hard negatives only
+
+        self.log('train/active_triplets', mask.sum().item())
 
         if mask.sum() == 0:
-            loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            loss = torch.zeros(1, device=self.device, requires_grad=True)
         else:
             loss = (d_ap[mask] - d_an[mask] + margin).mean()
 

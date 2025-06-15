@@ -2,6 +2,8 @@ import argparse
 import os
 import math
 import copy
+import warnings
+warnings.filterwarnings("ignore")
 
 from copy import deepcopy
 import pandas as pd

@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 from audiomentations import PitchShift, Gain, TimeStretch, Shift, AddGaussianNoise
 
-from hc_baseline.modules.fx_util import FrameLevelCorruption
+from qvim_mbn_multi.fx_util import FrameLevelCorruption
 
 class Augment(nn.Module):
     def __init__(self, sample_rate, max_transforms=1):

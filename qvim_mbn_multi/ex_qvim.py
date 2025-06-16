@@ -20,7 +20,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from qvim_mbn_multi.dataset import VimSketchDataset, AESAIMLA_DEV, VocalSketchDataset, TripletBatchDataset
 from qvim_mbn_multi.download import download_vimsketch_dataset, download_qvim_dev_dataset
 from qvim_mbn_multi.mn.preprocess import AugmentMelSTFT
-from qvim_mn_baseline.mn.model import get_model as get_mobilenet
+from qvim_mbn_multi.mn.model import get_model as get_mobilenet
 from qvim_mbn_multi.utils import NAME_TO_WIDTH
 from qvim_mbn_multi.metrics import compute_mrr, compute_ndcg
 

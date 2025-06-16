@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from qvim_mn_baseline.mn.utils import collapse_dim
+from qvim_mbn_multi.mn.utils import collapse_dim
 
 
 class MultiHeadAttentionPooling(nn.Module):

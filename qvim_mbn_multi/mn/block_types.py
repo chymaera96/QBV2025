@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch import Tensor
 from torchvision.ops.misc import ConvNormActivation
 
-from qvim_mn_baseline.mn.utils import make_divisible, cnn_out_size
+from qvim_mbn_multi.mn.utils import make_divisible, cnn_out_size
 
 
 class ConcurrentSEBlock(torch.nn.Module):

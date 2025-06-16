@@ -306,7 +306,7 @@ def train(config):
         callbacks.append(
             ModelCheckpoint(
             dirpath=os.path.join(config.model_save_path, wandb_logger.experiment.name),  # Directory to save checkpoints
-            filename="best-checkpoint",
+            filename="best-mrr-{epoch:02d}",
             monitor="val/mrr",  # Metric to monitor for best model
             mode="max",  
             save_top_k=1,  # Only keep the best checkpoint

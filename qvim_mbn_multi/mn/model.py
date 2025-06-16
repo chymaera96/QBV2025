@@ -6,10 +6,10 @@ from torchvision.ops.misc import ConvNormActivation
 from torch.hub import load_state_dict_from_url
 import urllib.parse
 
-from qvim_mn_baseline.mn.utils import cnn_out_size
-from qvim_mn_baseline.mn.block_types import InvertedResidualConfig, InvertedResidual
-from qvim_mn_baseline.mn.attention_pooling import MultiHeadAttentionPooling
-from qvim_mn_baseline.utils import NAME_TO_WIDTH
+from qvim_mbn_multi.mn.utils import cnn_out_size
+from qvim_mbn_multi.mn.block_types import InvertedResidualConfig, InvertedResidual
+from qvim_mbn_multi.mn.attention_pooling import MultiHeadAttentionPooling
+from qvim_mbn_multi.utils import NAME_TO_WIDTH
 
 
 # Adapted version of MobileNetV3 pytorch implementation

@@ -308,11 +308,12 @@ def train(config):
             dirpath=os.path.join(config.model_save_path, wandb_logger.experiment.name),  # Directory to save checkpoints
             filename="best-checkpoint",
             monitor="val/mrr",  # Metric to monitor for best model
-            mode="min",  # Save model with lowest val_loss
+            mode="max",  
             save_top_k=1,  # Only keep the best checkpoint
             save_last=True  # Always save the last checkpoint
             )
         )
+
     trainer = pl.Trainer(
         max_epochs=config.n_epochs,
         logger=wandb_logger,
@@ -348,7 +349,7 @@ if __name__ == '__main__':
                         help="Number of data loader workers. Set to 0 for no multiprocessing.")
     parser.add_argument('--num_gpus', type=int, default=1,
                         help="Number of GPUs to use for training.")
-    parser.add_argument('--model_save_path', type=str, default=None,
+    parser.add_argument('--model_save_path', type=str, default="/data/home/acw723/QBV2025/",
                         help="Path to store the checkpoints. Use None to disable saving.")
     parser.add_argument('--dataset_path', type=str, default='data',
                         help="Path to the data sets.")

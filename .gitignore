@@ -6,7 +6,6 @@
 /qvim/
 
 *.pt
-*.ckpt
 
 .idea
 build

@@ -8,7 +8,7 @@ export PYTHONPATH=$(pwd)/src
 #                                         --id pretrain_1
 
 python src/qvim_mn_baseline/ex_qvim.py --precision bf16-mixed \
-                                        --batch_size 128 \
-                                        --n_epochs 20 \
-                                        --margin 1.0 \
-                                        --id sht6
+                                        --batch_size 64 \
+                                        --n_epochs 30 \
+                                        --margin 0.6 \
+                                        --id sht9

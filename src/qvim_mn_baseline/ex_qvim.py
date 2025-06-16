@@ -126,7 +126,7 @@ class QVIMModule(pl.LightningModule):
             self.log('train/active_triplets', active.item())
 
         # Start with small weight if collapse is likely
-        alpha = min(1.0, max(0.1, active_ratio))  # Clamp between 0.1 and 1.0
+        alpha = min(1.0, max(0.3, active_ratio))  # Clamp between 0.1 and 1.0
         total_loss = contrastive_loss + alpha * triplet_loss
 
         # Logging
@@ -372,11 +372,11 @@ if __name__ == '__main__':
                         help="L2 weight regularization to prevent overfitting.")
     parser.add_argument('--max_lr', type=float, default=0.0002,
                         help="Maximum learning rate.")
-    parser.add_argument('--min_lr', type=float, default=8.e-5,
+    parser.add_argument('--min_lr', type=float, default=5.e-5,
                         help="Final learning rate at the end of training.")
     parser.add_argument('--warmup_epochs', type=int, default=1,
                         help="Number of warm-up epochs where learning rate increases gradually.")
-    parser.add_argument('--rampdown_epochs', type=int, default=15,
+    parser.add_argument('--rampdown_epochs', type=int, default=25,
                         help="Duration (in epochs) for learning rate ramp-down.")
     parser.add_argument('--initial_tau', type=float, default=0.07,
                         help="Temperature parameter for the loss function.")

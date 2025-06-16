@@ -1,0 +1,45 @@
+# Project & Logging
+project: qvim
+id: null
+model_save_path: /data/home/acw723/QBV2025/
+dataset_path: data
+neg_path: /data/scratch/acw723/VocalSketchDataset
+
+# Resources
+num_workers: 8
+
+# Training
+random_seed: null
+batch_size: 64
+n_epochs: 30
+weight_decay: 0.0
+max_lr: 0.0002
+min_lr: 5.0e-05
+warmup_epochs: 1
+rampdown_epochs: 25
+
+# Loss
+initial_tau: 0.07
+tau_trainable: false
+margin: 0.2
+
+# Precision & Sync
+precision: bf16-mixed
+sync_batchnorm: false
+
+# Encoder
+pretrained_name: mn10_as
+
+# Audio Preprocessing
+duration: 10.0
+sample_rate: 32000
+window_size: 800
+hop_size: 320
+n_fft: 1024
+n_mels: 128
+freqm: 2
+timem: 200
+fmin: 0
+fmax: null
+fmin_aug_range: 10
+fmax_aug_range: 2000

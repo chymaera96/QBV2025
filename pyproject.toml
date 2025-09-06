@@ -23,5 +23,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["qvim_mn_baseline", "qvim_2dft_baseline"]
 package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

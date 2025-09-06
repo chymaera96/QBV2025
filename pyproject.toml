@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qvim-mn-baseline"
-version = "0.1.0"
+version = "0.1.1.dev0"
 description = "Baseline system for the AES AIMLA AVIM Challenge"
 readme = "README.md"
 authors = [{ name = "Paul Primus", email = "paul.primus@jku.at" }]
